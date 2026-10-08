@@ -64,7 +64,10 @@ static __device__ __forceinline__ void expert_grouped_gemm_kernel(
     static_assert(sizeof(mlp_fp32_d_tile) <= 2 * sizeof(mlp_bf16_d_tile));
     static_assert(sizeof(mlp_fp8_d_tile) + 2 * sizeof(mlp_sc_tile) <= sizeof(mlp_bf16_d_tile));
 
-    const int col_blocks = ((IS_WGRAD && !USE_ROUTED_MXFP8) || IS_AB) ? b_gmem.cols() / config::MLP_Nb : b_gmem.rows() / config::MLP_Nb;
+    const int output_rows = IS_WGRAD
+        ? (USE_ROUTED_MXFP8 ? a_gmem.rows() : a_gmem.cols()) : a_gmem.rows();
+    const int output_cols = ((IS_WGRAD && !USE_ROUTED_MXFP8) || IS_AB) ? b_gmem.cols() : b_gmem.rows();
+    const int col_blocks = config::mlp_col_blocks(output_cols);
     const int global_minibatch_idx = macrobatch_idx * (macrobatch_size / minibatch_size) + minibatch_idx;
     const int macrobatch_row_block_offset = macrobatch_idx * (macrobatch_size / config::MLP_Mb);
 
@@ -73,7 +76,7 @@ static __device__ __forceinline__ void expert_grouped_gemm_kernel(
     int k_start = 0, k_end = 0;
     bool is_first_wgrad_contribution = IS_SHARED;
     if constexpr (IS_WGRAD) {
-        const int row_blocks = USE_ROUTED_MXFP8 ? a_gmem.rows() / config::MLP_Mb : a_gmem.cols() / config::MLP_Mb;
+        const int row_blocks = config::mlp_row_blocks(output_rows);
         const int expert_idx = IS_SHARED ? 0 : task_idx / (row_blocks * col_blocks);
         if constexpr (IS_SHARED) {
             k_end = a_gmem.rows();
@@ -119,6 +122,11 @@ static __device__ __forceinline__ void expert_grouped_gemm_kernel(
             barrier_arrive(*buffer_done, buffer_done_index);
         return;
     }
+
+    const int valid_rows = min(config::MLP_Mb, output_rows - tile_coord.x * config::MLP_Mb);
+    const bool cta_has_valid_rows = cta_rank * (config::MLP_Mb / config::CLUSTER_SIZE) < valid_rows;
+    const int valid_cols = min(config::MLP_Nb, output_cols - tile_coord.y * config::MLP_Nb);
+    const int output_half_blocks = (output_cols + config::MLP_Nb_HALF - 1) / config::MLP_Nb_HALF;
 
     const int first_gemm_iters = IS_WGRAD ? 0 : a_gmem.cols() / MLP_Kb;
     const int iters_per_task = IS_WGRAD ? (k_end - k_start) / MLP_Kb
@@ -210,7 +218,7 @@ static __device__ __forceinline__ void expert_grouped_gemm_kernel(
                         wait_for_wgrad_operands(idx, k_block * MLP_Kb);
                         wait(gemm_scales_finished[input_ring], get_phasebit<1>(gemm_bitfield, input_ring));
                         tma::cluster::load_async(a_sc_smem[input_ring], *a_sc_gmem, {tile_coord.x * 2 + cta_rank, k_block - macrobatch_k_offset, 0, 0}, gemm_scales_arrived[input_ring], (uint16_t)(1 << cta_rank), 0);
-                        tma::cluster::load_async(b_sc_smem[input_ring][cta_rank], *b_sc_gmem, {tile_coord.y * 2 + cta_rank, k_block - macrobatch_k_offset, 0, 0}, gemm_scales_arrived[input_ring], (uint16_t)(0b11), 0);
+                        tma::cluster::load_async(b_sc_smem[input_ring][cta_rank], *b_sc_gmem, {min(tile_coord.y * 2 + cta_rank, output_half_blocks - 1), k_block - macrobatch_k_offset, 0, 0}, gemm_scales_arrived[input_ring], (uint16_t)(0b11), 0);
                         update_phasebit<1>(gemm_bitfield, input_ring);
                         input_ring = ring_advance<config::MLP_LOAD_PIPE_DEPTH>(input_ring);
                     }
@@ -225,7 +233,7 @@ static __device__ __forceinline__ void expert_grouped_gemm_kernel(
                         tma::cluster::load_async(a_sc_smem[input_ring], a_sc_curr, {tile_coord.x * 2 + cta_rank, k_block, 0, 0}, gemm_scales_arrived[input_ring], (uint16_t)(1 << cta_rank), 0);
                         const auto selected_b_sc = b_sc_curr.select_expert(tile_coord.z);
                         tma::cluster::load_async(b_sc_smem[input_ring][cta_rank], selected_b_sc,
-                            {b_sc_curr.physical_row_block(tile_coord.z, tile_coord.y * 2 + cta_rank),
+                            {b_sc_curr.physical_row_block(tile_coord.z, min(tile_coord.y * 2 + cta_rank, output_half_blocks - 1)),
                              b_sc_curr.physical_col_block(k_block), 0, 0},
                             gemm_scales_arrived[input_ring], (uint16_t)(0b11), 0);
                         update_phasebit<1>(gemm_bitfield, input_ring);
@@ -316,6 +324,9 @@ static __device__ __forceinline__ void expert_grouped_gemm_kernel(
             }
             #pragma unroll
             for (int i = 0; i < config::MLP_EPI_PIPE_DEPTH; ++i) {
+                if (!cta_has_valid_rows
+                        || i * (config::MLP_Nb / config::MLP_EPI_PIPE_DEPTH) >= valid_cols)
+                    continue;
                 warpgroup::tma::store_async_read_wait<config::MLP_NUM_BF16_D_TILES - 1>();
                 warpgroup::sync(1);
                 warpgroup::store(d_bf16_smem[i % config::MLP_NUM_BF16_D_TILES], d_reg[i]);
@@ -378,6 +389,7 @@ static __device__ __forceinline__ void expert_grouped_gemm_kernel(
             uint32_t scale_word = 0;
             #pragma unroll 1
             for (int i = 0; i < NUM_MXFP8_BLOCKS; ++i) {
+                if (!cta_has_valid_rows || i * 32 >= valid_cols) continue;
                 float2 tmp[16];
                 asm volatile(R"(
                     tcgen05.ld.sync.aligned.32x32b.x32.b32
@@ -449,6 +461,9 @@ static __device__ __forceinline__ void expert_grouped_gemm_kernel(
                 rt_fl<config::MLP_Mb / 8, config::MLP_Nb / config::MLP_EPI_PIPE_DEPTH> d_reg;
                 #pragma unroll 1
                 for (int i = 0; i < config::MLP_EPI_PIPE_DEPTH; ++i) {
+                    if (!cta_has_valid_rows
+                            || i * (config::MLP_Nb / config::MLP_EPI_PIPE_DEPTH) >= valid_cols)
+                        continue;
                     warpgroup::load_async(d_reg, d_tt.template subtile<tt<float, config::MLP_Mb / 2, config::MLP_Nb / config::MLP_EPI_PIPE_DEPTH>>(0, config::MLP_Nb / config::MLP_EPI_PIPE_DEPTH * i));
                     tensor_load_wait();
                     warpgroup::sync(1);

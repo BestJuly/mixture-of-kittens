@@ -57,7 +57,7 @@ static __device__ __forceinline__ void dispatch_kernel(
             if (row_idx < previous_macrobatch_tokens) { // otherwise, previous macrobatch was partial & no need to wait
                 const int global_minibatch_idx = (previous_macrobatch_offset + row_idx) / minibatch_size;
                 const int minibatch_rows = min(minibatch_size, num_tokens - global_minibatch_idx * minibatch_size);
-                const int required_count = ((minibatch_rows + config::MLP_Mb - 1) / config::MLP_Mb) * (cols / config::MLP_Nb) * config::CLUSTER_SIZE;
+                const int required_count = ((minibatch_rows + config::MLP_Mb - 1) / config::MLP_Mb) * config::mlp_col_blocks(cols) * config::CLUSTER_SIZE;
                 barrier_wait(*transfer_ready, global_minibatch_idx, required_count);
             }
         }
@@ -210,7 +210,7 @@ static __device__ __forceinline__ void combine_kernel(
         const int last_global_minibatch_idx = (macrobatch_offset + (first_tile_idx + num_valid_tiles - 1) / col_blocks * config::COMBINE_Mb) / minibatch_size;
         for (int global_minibatch_idx = first_global_minibatch_idx; global_minibatch_idx <= last_global_minibatch_idx; ++global_minibatch_idx) {
             const int minibatch_rows = min(minibatch_size, num_tokens - global_minibatch_idx * minibatch_size);
-            const int required_count = ((minibatch_rows + config::MLP_Mb - 1) / config::MLP_Mb) * (cols / config::MLP_Nb) * config::CLUSTER_SIZE;
+            const int required_count = ((minibatch_rows + config::MLP_Mb - 1) / config::MLP_Mb) * config::mlp_col_blocks(cols) * config::CLUSTER_SIZE;
             barrier_wait(transfer_ready, global_minibatch_idx, required_count);
         }
         #pragma unroll
