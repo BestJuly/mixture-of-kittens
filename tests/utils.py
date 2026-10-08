@@ -22,6 +22,7 @@ def shapes(world_size: int) -> tuple[tuple[str, int, int, int, int, int], ...]:
         ("Qwen3.5-397B-A17B", 512, 4096, 1024, 10, 7168),
         ("DeepSeek-V4-Pro", 384, 7168, 3072, 6, 7168),
         ("All minimums", world_size, 256, 256, 1, 512),
+        ("128-column hidden tail", world_size, 640, 256, 1, 512),
         ("Minimum top-k", 384, 7168, 2048, 1, 7168),
         ("Minimum local experts", world_size, 7168, 2048, min(8, world_size), 7168),
         ("Minimum hidden dimension", 384, 256, 2048, 8, 7168),
