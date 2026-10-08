@@ -53,6 +53,15 @@ To build for SM100 instead, set the `MOK_ARCH` environment variable:
 MOK_ARCH=SM100 pip install . --no-build-isolation
 ```
 
+To build one wheel for both SM100 and SM103, set `MOK_ARCH=ALL`:
+
+```bash
+MOK_ARCH=ALL pip wheel . --no-build-isolation --no-deps
+```
+
+This includes `sm_100a` and `sm_103a` kernels using the BF16/MXFP8 features shared
+by both targets. For direct Makefile builds, use `make ARCH=ALL`.
+
 To verify the installation:
 
 ```bash
@@ -82,6 +91,12 @@ make
 ```
 
 #### Unit tests
+
+Build configuration tests run without PyTorch, CUDA, or GPUs:
+
+```bash
+python -m unittest tests.test_build -v
+```
 
 Launch multi-GPU unit tests through `torchrun` and `pytest`:
 
