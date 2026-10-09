@@ -338,7 +338,7 @@ dispatch_mlp_swiglu_combine_fwd_mxfp8(
     const int num_global_row_blocks = schedule_capacity / (config::MLP_Mb / config::CLUSTER_SIZE);
     const int shared_row_blocks = num_local_tokens / config::MLP_Mb;
     const int routed_row_blocks = schedule_capacity / config::MLP_Mb;
-    const int shared_gate_up_tasks = shared_row_blocks * (w_shared_gate.size(0) / config::MLP_Nb);
+    const int shared_gate_up_tasks = shared_row_blocks * (config::mlp_col_blocks(intermediate_dim));
     const int routed_gate_up_tasks = routed_row_blocks * (config::mlp_col_blocks(intermediate_dim));
     const bool combined_fc1_payload = w_routed_gate.is_same(w_routed_up);
     const bool combined_fc1_scale_payload = w_routed_gate_sc.is_same(w_routed_up_sc);
