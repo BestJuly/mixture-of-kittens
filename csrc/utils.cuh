@@ -43,7 +43,7 @@ struct globals {
     }
 };
 
-// Keep the ungated launch parameter layout and entry point unchanged.
+// Keep the ungated kernel's parameter layout and wrapper signature unchanged.
 struct gated_globals : globals {
     const bf16 *shared_output_gate;
 };
@@ -97,8 +97,8 @@ static __device__ __forceinline__ void fwd_epilogue_kernel_impl(
         wait(inputs_arrived[stage], 0);
         compute_group::load(accumulator, stage_vecs[0]);
         if constexpr (GATED) {
-            // B semantics: promote the saved BF16 gate, multiply in FP32,
-            // and retain FP32 until the original final output store.
+            // Multiply the saved BF16 shared output and gate in FP32;
+            // keep the accumulator FP32 until the final BF16 store.
             const float gate = __bfloat162float(shared_output_gate[first_token_idx + stage]);
             compute_group::mul(accumulator, accumulator, gate);
         }

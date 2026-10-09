@@ -555,21 +555,13 @@ def validate_inputs(
         raise ValueError("schedule capacity does not match the workspace")
 
 
-def _validate_shared_output_gate_weight(weight: torch.Tensor, x: torch.Tensor) -> None:
-    if (weight.dtype != torch.bfloat16 or weight.device != x.device
-            or tuple(weight.shape) != (1, x.shape[1]) or not weight.is_contiguous()):
-        raise ValueError("shared_output_gate_weight must be contiguous BF16 [1, H] on the input device")
-
-
 def _shared_output_gate_wgrad(
     d_z: torch.Tensor, x: torch.Tensor, main_grad: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """BF16 inputs -> FP32 contribution, with no BF16 result intermediate.
+    """Compute an FP32 gate-weight gradient from BF16 d_z and x.
 
-    Used by the manual backward and its local precision tests. The caller
-    validates an optional BF16/FP32 accumulation buffer before launching
-    backward. BF16 buffers round only when the FP32 contribution is added
-    and written back, not before the addition.
+    If main_grad is supplied, add the contribution in place and return that
+    buffer. A BF16 buffer rounds after the addition, not before it.
     """
     contribution = torch.mm(d_z.T, x, out_dtype=torch.float32)
     if main_grad is None:
@@ -631,8 +623,13 @@ def forward(
         forward_context: MoKForwardContext
     """
     validate_inputs(config, workspace, schedule, x, router_weights)
-    if shared_output_gate_weight is not None:
-        _validate_shared_output_gate_weight(shared_output_gate_weight, x)
+    if shared_output_gate_weight is not None and (
+        shared_output_gate_weight.dtype != torch.bfloat16
+        or shared_output_gate_weight.device != x.device
+        or tuple(shared_output_gate_weight.shape) != (1, x.shape[1])
+        or not shared_output_gate_weight.is_contiguous()
+    ):
+        raise ValueError("shared_output_gate_weight must be contiguous BF16 [1, H] on the input device")
 
     workspace.x_buffer.copy_(x)  # TODO: we can remove this
     workspace.router_weight_buffer.copy_(router_weights)
@@ -834,8 +831,8 @@ def recompute_forward_context(
 
     ``SplitRoutedWeight`` is intentionally unsupported here because the
     recompute custom ops do not yet accept per-expert descriptor tables.
-    This API also remains ungated: gated backward needs S/G from the original
-    forward context. Recomputing that state requires the shared down weight.
+    This API remains ungated: it lacks the shared down and output-gate weights
+    needed to recreate S/G for gated backward.
 
     Inputs:
         config:              MoKConfig
@@ -1191,7 +1188,7 @@ def backward(
                              for non-single weights, descriptor tables ordered
                              as routed gate, routed up, routed down. Gate/up may
                              share the same combined-FC1 table.
-        shared_output_gate_weight: the optional BF16 [1, H] weight used by forward
+        shared_output_gate_weight: the same unchanged BF16 [1, H] weight passed to forward, or None
         shared_output_gate_main_grad: optional BF16/FP32 [1, H] additive accumulation buffer
 
     Outputs:
@@ -1223,7 +1220,6 @@ def backward(
         if shared_output_gate_main_grad is not None:
             raise ValueError("shared output gate main-grad requires shared_output_gate_weight")
     else:
-        _validate_shared_output_gate_weight(shared_output_gate_weight, x)
         if gate is None or shared_output is None:
             raise ValueError("gated backward requires saved S/G from the original gated forward context")
         if shared_output_gate_main_grad is not None and (

@@ -350,20 +350,11 @@ def run_shared_output_gate_reference(
     output_gate_weight: torch.Tensor,
     d_output: torch.Tensor,
 ) -> tuple[torch.Tensor, ...]:
-    """Independent Native-style gate backward; NOT the MoE forward oracle.
+    """Return G, dS, dG, dZ, dX_gate and FP64 dW_gate from an independent graph.
 
-    Returns ``G, dS, dG, dZ, dX_gate, dW_gate_fp64``. A local BF16 S*G graph
-    lets autograd independently produce dS and sum(BF16(dY*S)), then BF16
-    sigmoid backward. The full forward oracle below still combines FP32
-    S*G with routed outputs (B semantics); this local graph defines only
-    the chosen backward rounding. The FP64 wgrad oracle uses *this
-    reference's* dZ, never a MOK intermediate or BF16 weight.grad.
+    BF16 S*G defines the backward rounding, not the full MoE forward.
+    Compute dW_gate from the reference dZ, not a BF16 weight.grad or MOK tensor.
     """
-    if any(t.dtype != torch.bfloat16 for t in (x, shared_output, output_gate_weight, d_output)):
-        raise ValueError("the shared output-gate reference requires BF16 inputs")
-    if output_gate_weight.shape != (1, x.shape[-1]):
-        raise ValueError("output gate weight must have shape [1, H]")
-
     x_ref = x.detach().requires_grad_()
     shared_ref = shared_output.detach().requires_grad_()
     gate_weight_ref = output_gate_weight.detach()
@@ -396,30 +387,12 @@ def run_reference_bf16(
     *,
     group: dist.ProcessGroup | None = None,
     shared_output_gate_weight: torch.Tensor | None = None,
-    shared_output_gate_main_grad: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, ...]:
-    """Reference MoE forward/backward, preserving the legacy ungated result.
+    """Return Y and eight gradients, appending FP32 dW_gate when gated.
 
-    Without an output gate, return the existing nine entries (Y and eight
-    gradients) with their original numerical path. With a gate, append the
-    FP32 gate wgrad as entry ten. An optional BF16/FP32 gate main-grad receives
-    FP32 contributions directly and is returned by reference; a BF16 buffer
-    rounds only after each addition. The six MLP wgrads
-    keep their original BF16 reference semantics. Gated forward retains
-    FP32 S*G (B semantics), independently of the Native-style BF16-product
-    rounding used by the local output-gate backward oracle.
+    MLP wgrads remain BF16. Gated forward accumulates S*G and routed outputs
+    in FP32; gate backward uses the BF16-product rounding defined above.
     """
-    if shared_output_gate_main_grad is not None:
-        if shared_output_gate_weight is None:
-            raise ValueError("gate main-grad requires an output gate weight")
-        if (
-            shared_output_gate_main_grad.dtype not in (torch.bfloat16, torch.float32)
-            or shared_output_gate_main_grad.shape != shared_output_gate_weight.shape
-            or shared_output_gate_main_grad.device != x.device
-            or not shared_output_gate_main_grad.is_contiguous()
-        ):
-            raise ValueError("gate main-grad must be contiguous BF16/FP32 [1, H] on the input device")
-
     world_size = dist.get_world_size(group)
     rank = dist.get_rank(group)
 
@@ -480,8 +453,8 @@ def run_reference_bf16(
     up_shared = x_shared @ w_shared_up.T
     shared_output = run_swiglu_reference(gate_shared, up_shared, swiglu_limit) @ w_shared_down.T
 
-    # Keep the old ungated reference unchanged. Gated mode follows the B
-    # epilogue's shared-first, route-by-route FP32 accumulation order.
+    # Preserve the ungated reference; gated mode accumulates shared first,
+    # then each valid route, in FP32 to match the forward epilogue.
     if shared_output_gate_weight is None:
         output = (routed_output + shared_output.float()).to(torch.bfloat16)
         d_shared_output = d_output
@@ -550,12 +523,7 @@ def run_reference_bf16(
     if shared_output_gate_weight is None:
         return results
 
-    d_w_output_gate = d_w_gate_fp64.float()
-    if shared_output_gate_main_grad is not None:
-        with torch.no_grad():
-            shared_output_gate_main_grad.add_(d_w_output_gate)
-        d_w_output_gate = shared_output_gate_main_grad
-    return (*results, d_w_output_gate)
+    return (*results, d_w_gate_fp64.float())
 
 
 def get_error_stats(

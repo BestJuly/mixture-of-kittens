@@ -124,11 +124,13 @@ To run MoK in MXFP8 mode, pass the activations as-is in BF16 while prequantizing
 
 ### BF16 shared output gate
 
-This branch supports an optional, bias-free BF16 output gate `W_g[1, H]`:
+MoK supports an optional, bias-free BF16 output gate `W_g[1, H]`:
 `Y = routed_output + sigmoid(linear(X, W_g)) * shared_output`. It is distinct
-from the shared SwiGLU gate projection. The first version uses separate torch
-gate operations, with the output multiplication inside the MOK epilogue;
-it does not yet fuse the gate producer or its backward into the megakernel.
+from the shared SwiGLU gate projection. Gate projection, sigmoid and gate
+backward use PyTorch operations; the shared-output multiplication is fused
+into the MOK forward epilogue.
+
+Example with BF16 routed and shared weights:
 
 ```python
 weights = (w_shared_gate, w_shared_up, w_shared_down,
@@ -153,13 +155,15 @@ to BF16. Without this buffer, the fresh gate gradient remains FP32. The gate
 buffer is independent of the six MLP `main_grads` buffers. Migrate existing
 eight-item unpacking accordingly.
 
-Gated forward supports both BF16 and MXFP8 routed experts. Shared weights,
-activations, and the output-gate tensors remain BF16 in either mode. Forward
-retains its original BF16 shared output and BF16 sigmoid output in the returned
-context; preserve that context until backward. The shared branch consumes the
-BF16 gated gradient while routed experts keep the original upstream gradient
-and their existing quantization path. Gated `recompute_forward_context` is not
-supported; ungated BF16/MXFP8 retain their original numerical paths.
+Gated forward supports BF16 or MXFP8 routed experts. Shared MLP weights and
+saved activations, and the output-gate weight, logits and sigmoid output, are
+BF16. The epilogue multiplies shared output by the gate and accumulates routed
+outputs in FP32 before storing BF16. The returned context retains the pre-gate
+shared output and sigmoid output; preserve it and keep the weights unchanged
+until backward. Shared backward consumes the BF16 gated gradient; routed
+experts retain their original upstream gradient and quantization path.
+Gated `recompute_forward_context` is unsupported; internal routed replay is
+unchanged. Ungated BF16/MXFP8 retain their original numerical paths.
 
 ### Example (MXFP8 forward and backward using the functional layer)
 
