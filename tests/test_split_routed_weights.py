@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from mok import functional, ops
-from .utils import BF16_TOLERANCE, MXFP8_TOLERANCE, check_correctness, generate_inputs
+from .utils import BF16_TOLERANCE, MXFP8_TOLERANCE, check_correctness, generate_inputs, ungated_backward_gradients
 
 
 def _current_cuda_context() -> int | None:
@@ -56,9 +56,11 @@ def _quantize_experts(
     return rowwise, rowwise_scale, columnwise, columnwise_scale
 
 
-@pytest.mark.parametrize("precision", ["bf16", "mxfp8"])
+@pytest.mark.parametrize("precision,gated", [
+    ("bf16", False), ("mxfp8", False), ("mxfp8", True),
+])
 def test_split_routed_weights_match_dense(
-    context: tuple[int, int, torch.device], precision: str
+    context: tuple[int, int, torch.device], precision: str, gated: bool
 ) -> None:
     rank, world_size, device = context
     num_local_experts = 2
@@ -104,6 +106,9 @@ def test_split_routed_weights_match_dense(
         w_routed_down,
         d_output,
     ) = inputs
+    gate_kwargs = {}
+    if gated:
+        gate_kwargs["shared_output_gate_weight"] = x.new_full((1, hidden_dim), hidden_dim ** -0.5)
     routed_fc1 = torch.cat((w_routed_gate, w_routed_up), dim=1)
     fc1_experts = [routed_fc1[expert].clone() for expert in range(num_local_experts)]
     down_experts = [w_routed_down[expert].clone() for expert in range(num_local_experts)]
@@ -206,6 +211,7 @@ def test_split_routed_weights_match_dense(
         dense_forward_gate,
         dense_forward_up,
         dense_forward_down,
+        **gate_kwargs,
     )
     dense_backward = functional.backward(
         config,
@@ -222,6 +228,7 @@ def test_split_routed_weights_match_dense(
         dense_backward_up,
         dense_backward_down,
         main_grads=dense_main_grads,
+        **gate_kwargs,
     )
 
     split_fc1_main_grads = [
@@ -256,6 +263,7 @@ def test_split_routed_weights_match_dense(
         split_fc1,
         split_fc1,
         split_down,
+        **gate_kwargs,
     )
     split_backward = functional.backward(
         config,
@@ -277,8 +285,16 @@ def test_split_routed_weights_match_dense(
             split_fc1_main_grad_table,
             split_down_main_grad_table,
         ),
+        **gate_kwargs,
     )
 
+    if gated:
+        assert len(dense_backward) == len(split_backward) == 9
+        assert dense_backward[-1].dtype == split_backward[-1].dtype == torch.float32
+        check_correctness("split/d_output_gate", dense_backward[-1], split_backward[-1], BF16_TOLERANCE, rank == 0)
+    else:
+        ungated_backward_gradients(dense_backward)
+        ungated_backward_gradients(split_backward)
     check_correctness("split/output", dense_output, split_output, tolerance, rank == 0)
     check_correctness("split/d_x", dense_backward[0], split_backward[0], tolerance, rank == 0)
     check_correctness(

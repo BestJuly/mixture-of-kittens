@@ -13,6 +13,7 @@ from .utils import (
     mok_params,
     run_reference_bf16,
     shapes,
+    ungated_backward_gradients,
 )
 
 BF16_TOLERANCE = (0.5, 0.01)
@@ -111,7 +112,7 @@ def test_e2e_bf16(context: tuple[int, int, torch.device]) -> None:
             w_routed_up,
             w_routed_down,
         )
-        bf16_results = (bf16_output, *bf16_gradients)
+        bf16_results = (bf16_output, *ungated_backward_gradients(bf16_gradients))
 
         for name, reference, actual in zip(RESULT_NAMES, reference_results, bf16_results, strict=True):
             check_correctness(
@@ -217,7 +218,7 @@ def test_e2e_bf16_recomputed_forward_context(
             w_routed_up,
             w_routed_down,
         )
-        bf16_results = (bf16_output, *bf16_gradients)
+        bf16_results = (bf16_output, *ungated_backward_gradients(bf16_gradients))
 
         for name, reference, actual in zip(
             RESULT_NAMES,
@@ -347,7 +348,7 @@ def test_e2e_mxfp8(context: tuple[int, int, torch.device]) -> None:
                 w_routed_down_t_sc,
             ),
         )
-        mxfp8_results = (mxfp8_output, *mxfp8_gradients)
+        mxfp8_results = (mxfp8_output, *ungated_backward_gradients(mxfp8_gradients))
 
         for name, reference, actual in zip(RESULT_NAMES, reference_results, mxfp8_results, strict=True):
             check_correctness(
@@ -485,7 +486,7 @@ def test_e2e_mxfp8_recomputed_forward_context(
                 w_routed_down_t_sc,
             ),
         )
-        mxfp8_results = (mxfp8_output, *mxfp8_gradients)
+        mxfp8_results = (mxfp8_output, *ungated_backward_gradients(mxfp8_gradients))
 
         for name, reference, actual in zip(
             RESULT_NAMES,

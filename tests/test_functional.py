@@ -21,6 +21,7 @@ from .utils import (
     run_reference_bf16,
     run_schedule_reference,
     shapes,
+    ungated_backward_gradients,
 )
 
 EXACT_TOLERANCE = (0.0, 0.0)
@@ -1446,7 +1447,7 @@ def test_backward_mxfp8(context: tuple[int, int, torch.device]) -> None:
         )
         reference = run_reference_bf16(*inputs, swiglu_limit)[1:]
         for name, expected, result in zip(
-            BACKWARD_RESULT_NAMES, reference, actual, strict=True
+            BACKWARD_RESULT_NAMES, reference, ungated_backward_gradients(actual), strict=True
         ):
             check_correctness(
                 f"{shape_name}/{mok_param_name}/{swiglu_param_name}/{name}",
@@ -1569,7 +1570,7 @@ def test_backward_mxfp8(context: tuple[int, int, torch.device]) -> None:
     actual = functional.backward(**valid_kwargs)
     reference = run_reference_bf16(*inputs)[1:]
     for name, expected, result in zip(
-        BACKWARD_RESULT_NAMES, reference, actual, strict=True
+        BACKWARD_RESULT_NAMES, reference, ungated_backward_gradients(actual), strict=True
     ):
         check_correctness(
             f"All combined minimums/{name}",
@@ -1704,7 +1705,7 @@ def test_backward_bf16(context: tuple[int, int, torch.device]) -> None:
         )
         reference = run_reference_bf16(*inputs, swiglu_limit)[1:]
         for name, expected, result in zip(
-            BACKWARD_RESULT_NAMES, reference, actual, strict=True
+            BACKWARD_RESULT_NAMES, reference, ungated_backward_gradients(actual), strict=True
         ):
             check_correctness(
                 f"{shape_name}/{mok_param_name}/{swiglu_param_name}/{name}",
@@ -1799,7 +1800,7 @@ def test_backward_bf16(context: tuple[int, int, torch.device]) -> None:
     actual = functional.backward(**valid_kwargs)
     reference = run_reference_bf16(*inputs)[1:]
     for name, expected, result in zip(
-        BACKWARD_RESULT_NAMES, reference, actual, strict=True
+        BACKWARD_RESULT_NAMES, reference, ungated_backward_gradients(actual), strict=True
     ):
         check_correctness(
             f"All combined minimums/{name}",

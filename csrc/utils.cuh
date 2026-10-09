@@ -4,6 +4,7 @@
 #include "pyutils/torchutils.cuh"
 
 #include <ATen/ops/empty_like.h>
+#include <optional>
 
 using namespace kittens;
 
@@ -42,7 +43,15 @@ struct globals {
     }
 };
 
-static __device__ __forceinline__ void fwd_epilogue_kernel(const globals &g) {
+// Keep the ungated kernel's parameter layout and wrapper signature unchanged.
+struct gated_globals : globals {
+    const bf16 *shared_output_gate;
+};
+
+template <bool GATED>
+static __device__ __forceinline__ void fwd_epilogue_kernel_impl(
+    const globals &g, const bf16 *shared_output_gate
+) {
     constexpr int TOKENS_PER_CTA = globals::TOKENS_PER_CTA;
     using compute_group = group<config::NUM_WARPS>;
 
@@ -87,6 +96,12 @@ static __device__ __forceinline__ void fwd_epilogue_kernel(const globals &g) {
         rv_fl<globals::Nb / config::NUM_WARPS> accumulator, term;
         wait(inputs_arrived[stage], 0);
         compute_group::load(accumulator, stage_vecs[0]);
+        if constexpr (GATED) {
+            // Multiply the saved BF16 shared output and gate in FP32;
+            // keep the accumulator FP32 until the final BF16 store.
+            const float gate = __bfloat162float(shared_output_gate[first_token_idx + stage]);
+            compute_group::mul(accumulator, accumulator, gate);
+        }
         for (int k = 0; k < topk; ++k) {
             if (top_experts[stage * topk + k] >= 0) {
                 compute_group::load(term, stage_vecs[1 + k]);
@@ -101,12 +116,31 @@ static __device__ __forceinline__ void fwd_epilogue_kernel(const globals &g) {
     }
 }
 
+static __device__ __forceinline__ void fwd_epilogue_kernel(const globals &g) {
+    fwd_epilogue_kernel_impl<false>(g, nullptr);
+}
+
+static __device__ __forceinline__ void fwd_epilogue_gated_kernel(const gated_globals &g) {
+    fwd_epilogue_kernel_impl<true>(g, g.shared_output_gate);
+}
+
 static __host__ at::Tensor fwd_epilogue_entrypoint(
     const at::Tensor &y_shared,
     const at::Tensor &combine_buffer,
     const at::Tensor &topk_weights,
-    const at::Tensor &top_experts
+    const at::Tensor &top_experts,
+    const std::optional<at::Tensor> &shared_output_gate = std::nullopt
 ) {
+    if (shared_output_gate.has_value()) {
+        TORCH_CHECK(shared_output_gate->is_cuda() &&
+                    shared_output_gate->scalar_type() == at::kBFloat16 &&
+                    shared_output_gate->is_contiguous() &&
+                    shared_output_gate->device() == y_shared.device() &&
+                    shared_output_gate->dim() == 2 &&
+                    shared_output_gate->size(0) == y_shared.size(0) &&
+                    shared_output_gate->size(1) == 1,
+                    "MoK: shared_output_gate must be contiguous CUDA BF16 [T, 1] on y_shared's device");
+    }
     at::Tensor output = at::empty_like(y_shared);
     globals g {
         .y_shared = kittens::py::tensor_to_gl<globals::activation_gl>(y_shared),
@@ -115,7 +149,13 @@ static __host__ at::Tensor fwd_epilogue_entrypoint(
         .top_experts = kittens::py::tensor_to_gl<globals::route_gl>(top_experts),
         .output = kittens::py::tensor_to_gl<globals::activation_gl>(output)
     };
-    kittens::py::launch_kernel<config, globals, fwd_epilogue_kernel>(g);
+    if (shared_output_gate.has_value()) {
+        gated_globals gated_g{g, reinterpret_cast<const bf16 *>(
+            shared_output_gate->data_ptr<at::BFloat16>())};
+        kittens::py::launch_kernel<config, gated_globals, fwd_epilogue_gated_kernel>(gated_g);
+    } else {
+        kittens::py::launch_kernel<config, globals, fwd_epilogue_kernel>(g);
+    }
     return output;
 }
 

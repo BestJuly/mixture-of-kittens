@@ -8,6 +8,13 @@ BF16_TOLERANCE = (0.5, 0.01)
 MXFP8_TOLERANCE = (1.0, 0.1)
 
 
+def ungated_backward_gradients(gradients):
+    """Validate the unified API, then expose the unchanged eight gradients."""
+    assert len(gradients) == 9
+    assert gradients[-1] is None
+    return gradients[:8]
+
+
 def shapes(world_size: int) -> tuple[tuple[str, int, int, int, int, int], ...]:
     return (  # (name, routed experts, hidden dim, intermediate dim, top-k, num local tokens)
         ("Kimi K2.7 Code", 384, 7168, 2048, 8, 7168),
@@ -336,6 +343,35 @@ def run_bwd_epilogue_reference(
     return (d_x_shared.float() + d_x_routed.float().sum(dim=1)).to(torch.bfloat16)
 
 
+@torch.enable_grad()
+def run_shared_output_gate_reference(
+    x: torch.Tensor,
+    shared_output: torch.Tensor,
+    output_gate_weight: torch.Tensor,
+    d_output: torch.Tensor,
+) -> tuple[torch.Tensor, ...]:
+    """Return G, dS, dG, dZ, dX_gate and FP64 dW_gate from an independent graph.
+
+    BF16 S*G defines the backward rounding, not the full MoE forward.
+    Compute dW_gate from the reference dZ, not a BF16 weight.grad or MOK tensor.
+    """
+    x_ref = x.detach().requires_grad_()
+    shared_ref = shared_output.detach().requires_grad_()
+    gate_weight_ref = output_gate_weight.detach()
+    logits = torch.nn.functional.linear(x_ref, gate_weight_ref)
+    gate = torch.sigmoid(logits)
+    gated_shared_bf16 = shared_ref * gate
+    d_shared, d_gate, d_logits, d_x_gate = torch.autograd.grad(
+        gated_shared_bf16,
+        (shared_ref, gate, logits, x_ref),
+        d_output,
+    )
+    d_weight_fp64 = d_logits.double().T @ x_ref.detach().double()
+    return (
+        gate.detach(), d_shared, d_gate, d_logits, d_x_gate, d_weight_fp64,
+    )
+
+
 def run_reference_bf16(
     x: torch.Tensor,               # [T, H]
     topk_experts: torch.Tensor,    # [T, TOPK]
@@ -350,17 +386,13 @@ def run_reference_bf16(
     swiglu_limit: float | None = None,
     *,
     group: dist.ProcessGroup | None = None,
-) -> tuple[
-    torch.Tensor,  # output
-    torch.Tensor,  # d_x
-    torch.Tensor,  # d_router_weights
-    torch.Tensor,  # d_w_routed_gate
-    torch.Tensor,  # d_w_routed_up
-    torch.Tensor,  # d_w_routed_down
-    torch.Tensor,  # d_w_shared_gate
-    torch.Tensor,  # d_w_shared_up
-    torch.Tensor,  # d_w_shared_down
-]:
+    shared_output_gate_weight: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, ...]:
+    """Return Y and eight gradients, appending FP32 dW_gate when gated.
+
+    MLP wgrads remain BF16. Gated forward accumulates S*G and routed outputs
+    in FP32; gate backward uses the BF16-product rounding defined above.
+    """
     world_size = dist.get_world_size(group)
     rank = dist.get_rank(group)
 
@@ -421,8 +453,25 @@ def run_reference_bf16(
     up_shared = x_shared @ w_shared_up.T
     shared_output = run_swiglu_reference(gate_shared, up_shared, swiglu_limit) @ w_shared_down.T
 
-    # Final sum
-    output = (routed_output + shared_output.float()).to(torch.bfloat16)
+    # Preserve the ungated reference; gated mode accumulates shared first,
+    # then each valid route, in FP32 to match the forward epilogue.
+    if shared_output_gate_weight is None:
+        output = (routed_output + shared_output.float()).to(torch.bfloat16)
+        d_shared_output = d_output
+    else:
+        gate, d_shared_output, _, _, d_x_gate, d_w_gate_fp64 = (
+            run_shared_output_gate_reference(
+                x, shared_output, shared_output_gate_weight, d_output
+            )
+        )
+        accumulator = shared_output.float() * gate.float()
+        routed = flat_output.view(num_local_tokens, topk, hidden)
+        for k in range(topk):
+            term = routed[:, k].float() * router_weights[:, k, None]
+            accumulator = accumulator + torch.where(
+                topk_experts[:, k, None] >= 0, term, 0.0
+            )
+        output = accumulator.to(torch.bfloat16)
 
     # Combine all-to-all
     d_flat_output = (d_output.unsqueeze(1).float() * router_weights.unsqueeze(2)).to(torch.bfloat16)
@@ -446,13 +495,21 @@ def run_reference_bf16(
     d_x_shared, d_w_shared_gate, d_w_shared_up, d_w_shared_down = torch.autograd.grad(
         shared_output,
         (x_shared, w_shared_gate, w_shared_up, w_shared_down),
-        d_output,
+        d_shared_output,
     )
-    d_x = (d_x_routed + d_x_shared.float()).to(torch.bfloat16)
+    if shared_output_gate_weight is None:
+        d_x = (d_x_routed + d_x_shared.float()).to(torch.bfloat16)
+    else:
+        accumulator = d_x_shared.float()
+        routed_d_x = flat_d_x.view(num_local_tokens, topk, hidden)
+        for k in range(topk):
+            accumulator = accumulator + routed_d_x[:, k].float()
+        d_x_mlp = accumulator.to(torch.bfloat16)
+        d_x = d_x_mlp + d_x_gate
     d_router_weights = (d_output.unsqueeze(1).float() * flat_output.view(num_local_tokens, topk, hidden).float()).sum(2)
     d_router_weights.masked_fill_(topk_experts < 0, 0.0)
 
-    return (
+    results = (
         output,             # [T, H]
         d_x,                # [T, H]
         d_router_weights,   # [T, TOPK]
@@ -463,6 +520,10 @@ def run_reference_bf16(
         d_w_shared_up,      # [I, H]
         d_w_shared_down,    # [H, I]
     )
+    if shared_output_gate_weight is None:
+        return results
+
+    return (*results, d_w_gate_fp64.float())
 
 
 def get_error_stats(

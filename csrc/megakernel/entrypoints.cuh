@@ -307,7 +307,8 @@ dispatch_mlp_swiglu_combine_bwd_mxfp8_entrypoint(
     int num_comm_sms,
     int macrobatch_size,
     int minibatch_size,
-    bool routed_weights_are_native_columnwise
+    bool routed_weights_are_native_columnwise,
+    const std::optional<at::Tensor> &shared_grad_output = std::nullopt
 ) {
     const int num_devices = static_cast<int>(x_ptrs.size());
 
@@ -327,7 +328,11 @@ dispatch_mlp_swiglu_combine_bwd_mxfp8_entrypoint(
                 w_routed_gate, w_routed_gate_sc,
                 w_routed_up, w_routed_up_sc,
                 schedule_peer_rank, schedule_peer_token_idx, num_tokens, tokens_per_expert,
-                topk, swiglu_limit, num_comm_sms, macrobatch_size, minibatch_size, routed_weights_are_native_columnwise);
+                topk, swiglu_limit, num_comm_sms, macrobatch_size, minibatch_size, routed_weights_are_native_columnwise,
+                nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, shared_grad_output);
         case 4:
             return dispatch_mlp_swiglu_combiner<4>::dispatch_mlp_swiglu_combine_bwd_mxfp8(
                 d_y_buffer, d_y_buffer_ptrs, d_x_routed_buffer, d_x_routed_buffer_ptrs,
@@ -343,7 +348,11 @@ dispatch_mlp_swiglu_combine_bwd_mxfp8_entrypoint(
                 w_routed_gate, w_routed_gate_sc,
                 w_routed_up, w_routed_up_sc,
                 schedule_peer_rank, schedule_peer_token_idx, num_tokens, tokens_per_expert,
-                topk, swiglu_limit, num_comm_sms, macrobatch_size, minibatch_size, routed_weights_are_native_columnwise);
+                topk, swiglu_limit, num_comm_sms, macrobatch_size, minibatch_size, routed_weights_are_native_columnwise,
+                nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, shared_grad_output);
         case 8:
             return dispatch_mlp_swiglu_combiner<8>::dispatch_mlp_swiglu_combine_bwd_mxfp8(
                 d_y_buffer, d_y_buffer_ptrs, d_x_routed_buffer, d_x_routed_buffer_ptrs,
@@ -359,7 +368,11 @@ dispatch_mlp_swiglu_combine_bwd_mxfp8_entrypoint(
                 w_routed_gate, w_routed_gate_sc,
                 w_routed_up, w_routed_up_sc,
                 schedule_peer_rank, schedule_peer_token_idx, num_tokens, tokens_per_expert,
-                topk, swiglu_limit, num_comm_sms, macrobatch_size, minibatch_size, routed_weights_are_native_columnwise);
+                topk, swiglu_limit, num_comm_sms, macrobatch_size, minibatch_size, routed_weights_are_native_columnwise,
+                nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, shared_grad_output);
         case 16:
             return dispatch_mlp_swiglu_combiner<16>::dispatch_mlp_swiglu_combine_bwd_mxfp8(
                 d_y_buffer, d_y_buffer_ptrs, d_x_routed_buffer, d_x_routed_buffer_ptrs,
@@ -375,7 +388,11 @@ dispatch_mlp_swiglu_combine_bwd_mxfp8_entrypoint(
                 w_routed_gate, w_routed_gate_sc,
                 w_routed_up, w_routed_up_sc,
                 schedule_peer_rank, schedule_peer_token_idx, num_tokens, tokens_per_expert,
-                topk, swiglu_limit, num_comm_sms, macrobatch_size, minibatch_size, routed_weights_are_native_columnwise);
+                topk, swiglu_limit, num_comm_sms, macrobatch_size, minibatch_size, routed_weights_are_native_columnwise,
+                nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, shared_grad_output);
         case 32:
             return dispatch_mlp_swiglu_combiner<32>::dispatch_mlp_swiglu_combine_bwd_mxfp8(
                 d_y_buffer, d_y_buffer_ptrs, d_x_routed_buffer, d_x_routed_buffer_ptrs,
@@ -391,7 +408,11 @@ dispatch_mlp_swiglu_combine_bwd_mxfp8_entrypoint(
                 w_routed_gate, w_routed_gate_sc,
                 w_routed_up, w_routed_up_sc,
                 schedule_peer_rank, schedule_peer_token_idx, num_tokens, tokens_per_expert,
-                topk, swiglu_limit, num_comm_sms, macrobatch_size, minibatch_size, routed_weights_are_native_columnwise);
+                topk, swiglu_limit, num_comm_sms, macrobatch_size, minibatch_size, routed_weights_are_native_columnwise,
+                nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, shared_grad_output);
         case 64:
             return dispatch_mlp_swiglu_combiner<64>::dispatch_mlp_swiglu_combine_bwd_mxfp8(
                 d_y_buffer, d_y_buffer_ptrs, d_x_routed_buffer, d_x_routed_buffer_ptrs,
@@ -407,7 +428,11 @@ dispatch_mlp_swiglu_combine_bwd_mxfp8_entrypoint(
                 w_routed_gate, w_routed_gate_sc,
                 w_routed_up, w_routed_up_sc,
                 schedule_peer_rank, schedule_peer_token_idx, num_tokens, tokens_per_expert,
-                topk, swiglu_limit, num_comm_sms, macrobatch_size, minibatch_size, routed_weights_are_native_columnwise);
+                topk, swiglu_limit, num_comm_sms, macrobatch_size, minibatch_size, routed_weights_are_native_columnwise,
+                nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                std::nullopt, std::nullopt, std::nullopt, shared_grad_output);
         default:
             throw std::runtime_error("MoK: dispatch_mlp_swiglu_combine_bwd_mxfp8 unsupported num_devices=" +
                                      std::to_string(num_devices) + " (supported: 1, 4, 8, 16, 32, 64)");
@@ -480,7 +505,8 @@ dispatch_mlp_swiglu_combine_bwd_mxfp8_accum(
     const std::optional<at::Tensor> &w_routed_down_T_sc_storage_table = std::nullopt,
     const std::optional<at::Tensor> &main_grad_routed_gate_storage_table = std::nullopt,
     const std::optional<at::Tensor> &main_grad_routed_up_storage_table = std::nullopt,
-    const std::optional<at::Tensor> &main_grad_routed_down_storage_table = std::nullopt
+    const std::optional<at::Tensor> &main_grad_routed_down_storage_table = std::nullopt,
+    const std::optional<at::Tensor> &shared_grad_output = std::nullopt
 ) {
     auto dispatch_for_ep = [&]<int EP_SIZE>() {
         auto dispatch_for_main_grad = [&]<bool USE_BF16_MAIN_GRAD>() {
@@ -513,7 +539,7 @@ dispatch_mlp_swiglu_combine_bwd_mxfp8_accum(
                 w_routed_down_T_sc_storage_table,
                 main_grad_routed_gate_storage_table,
                 main_grad_routed_up_storage_table,
-                main_grad_routed_down_storage_table);
+                main_grad_routed_down_storage_table, shared_grad_output);
         };
         const at::ScalarType main_grad_dtype = main_grad_shared_gate.scalar_type();
         TORCH_CHECK(main_grad_dtype == at::kFloat || main_grad_dtype == at::kBFloat16,
@@ -583,7 +609,8 @@ dispatch_mlp_swiglu_combine_bwd_bf16_entrypoint(
     const std::optional<at::Tensor> &w_routed_down_storage_table = std::nullopt,
     const std::optional<at::Tensor> &main_grad_routed_gate_storage_table = std::nullopt,
     const std::optional<at::Tensor> &main_grad_routed_up_storage_table = std::nullopt,
-    const std::optional<at::Tensor> &main_grad_routed_down_storage_table = std::nullopt
+    const std::optional<at::Tensor> &main_grad_routed_down_storage_table = std::nullopt,
+    const std::optional<at::Tensor> &shared_grad_output = std::nullopt
 ) {
     const bool accumulate_wgrad = main_grad_shared_gate.has_value();
     TORCH_CHECK(main_grad_routed_gate.has_value() == accumulate_wgrad &&
@@ -610,7 +637,7 @@ dispatch_mlp_swiglu_combine_bwd_bf16_entrypoint(
                     w_routed_down_storage_table,
                     main_grad_routed_gate_storage_table,
                     main_grad_routed_up_storage_table,
-                    main_grad_routed_down_storage_table);
+                    main_grad_routed_down_storage_table, shared_grad_output);
             };
             const at::ScalarType main_grad_dtype = main_grad_shared_gate->scalar_type();
             TORCH_CHECK(main_grad_dtype == at::kFloat || main_grad_dtype == at::kBFloat16,
@@ -633,7 +660,7 @@ dispatch_mlp_swiglu_combine_bwd_bf16_entrypoint(
             w_routed_down_storage_table,
             main_grad_routed_gate_storage_table,
             main_grad_routed_up_storage_table,
-            main_grad_routed_down_storage_table);
+            main_grad_routed_down_storage_table, shared_grad_output);
     };
     switch (x_ptrs.size()) {
         case 1: return dispatch_for_ep.template operator()<1>();

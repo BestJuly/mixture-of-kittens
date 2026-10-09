@@ -137,6 +137,49 @@ Because symmetric buffers are expensive to allocate, we recommend creating a sin
 
 To run MoK in MXFP8 mode, pass the activations as-is in BF16 while prequantizing the weights to MXFP8. We *could* quantize the weights inside our kernels, but prequantizing leaves better opportunities for things like FSDP, so we keep it separate and provide the `mxfp8_quantize(...)` function at the ops layer so you can prequantize the weights yourself.
 
+### BF16 shared output gate
+
+MoK supports an optional, bias-free BF16 output gate `W_g[1, H]`:
+`Y = routed_output + sigmoid(linear(X, W_g)) * shared_output`. It is distinct
+from the shared SwiGLU gate projection. Gate projection, sigmoid and gate
+backward use PyTorch operations; the shared-output multiplication is fused
+into the MOK forward epilogue.
+
+Example with BF16 routed and shared weights:
+
+```python
+weights = (w_shared_gate, w_shared_up, w_shared_down,
+           w_routed_gate, w_routed_up, w_routed_down)
+output, context = functional.forward(
+    config, workspace, schedule, x, router_weights, *weights,
+    shared_output_gate_weight=w_g,
+)
+gradients = functional.backward(
+    config, workspace, schedule, context, d_output, x, router_weights, *weights,
+    shared_output_gate_weight=w_g,
+)
+d_w_g = gradients[8]  # Fresh FP32 gradient, without a BF16 result intermediate.
+```
+
+`backward` now always returns **nine** entries: the original eight gradients
+followed by the output-gate gradient (`None` when ungated). An optional
+`shared_output_gate_main_grad` BF16 or FP32 `[1, H]` buffer receives additive
+FP32 gate-gradient contributions and is returned by reference. A BF16 buffer
+rounds when each addition is written back; the contribution is not first cast
+to BF16. Without this buffer, the fresh gate gradient remains FP32. The gate
+buffer is independent of the six MLP `main_grads` buffers. Migrate existing
+eight-item unpacking accordingly.
+
+Gated forward supports BF16 or MXFP8 routed experts. Shared MLP weights and
+saved activations, and the output-gate weight, logits and sigmoid output, are
+BF16. The epilogue multiplies shared output by the gate and accumulates routed
+outputs in FP32 before storing BF16. The returned context retains the pre-gate
+shared output and sigmoid output; preserve it and keep the weights unchanged
+until backward. Shared backward consumes the BF16 gated gradient; routed
+experts retain their original upstream gradient and quantization path.
+Gated `recompute_forward_context` is unsupported; internal routed replay is
+unchanged. Ungated BF16/MXFP8 retain their original numerical paths.
+
 ### Example (MXFP8 forward and backward using the functional layer)
 
 The following is a canonical example of implementing MoE forward and backward with MoK in MXFP8 mode:
@@ -238,6 +281,7 @@ output, forward_context = functional.forward(
     d_w_shared_gate,
     d_w_shared_up,
     d_w_shared_down,
+    d_w_shared_output_gate,  # None: this MXFP8 example is ungated.
 ) = functional.backward(
     config,
     workspace,

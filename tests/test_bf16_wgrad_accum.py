@@ -184,7 +184,7 @@ def test_wgrad_accumulates_directly_into_main_grad(
             forward_routed_up,
             forward_routed_down,
         )
-        d_x, d_router_weights, *_ = functional.backward(
+        d_x, d_router_weights, *weight_gradients = functional.backward(
             config,
             workspace,
             schedule,
@@ -200,6 +200,7 @@ def test_wgrad_accumulates_directly_into_main_grad(
             backward_routed_down,
             main_grads=main_grads,
         )
+        assert len(weight_gradients) == 7 and weight_gradients[-1] is None
 
     reference_all = run_reference_bf16(*inputs)
     check_correctness("output", reference_all[0], output, tolerance, rank == 0)

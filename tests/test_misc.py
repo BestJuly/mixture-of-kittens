@@ -12,6 +12,7 @@ from mok import functional, ops
 from .utils import (
     check_correctness,
     run_reference_bf16,
+    ungated_backward_gradients,
 )
 
 
@@ -204,7 +205,7 @@ def _run_e2e_case(
                 w_routed_up,
                 w_routed_down,
             )
-            actual = (output, *gradients)
+            actual = (output, *ungated_backward_gradients(gradients))
             tolerance = BF16_TOLERANCE
             gradient_min_cosine = BF16_GRADIENT_MIN_COSINE
         elif precision == "mxfp8":
@@ -284,7 +285,7 @@ def _run_e2e_case(
                     w_routed_down_t_sc,
                 ),
             )
-            actual = (output, *gradients)
+            actual = (output, *ungated_backward_gradients(gradients))
             tolerance = MXFP8_TOLERANCE
             gradient_min_cosine = MXFP8_GRADIENT_MIN_COSINE
         else:
@@ -1399,7 +1400,7 @@ def test_compile_fullgraph(
                         routed_up,
                         routed_down,
                     )
-                    return output, *gradients
+                    return output, *ungated_backward_gradients(gradients)
 
                 (
                     routed_gate_fp8,
@@ -1460,7 +1461,7 @@ def test_compile_fullgraph(
                         routed_down_t_sc,
                     ),
                 )
-                return output, *gradients
+                return output, *ungated_backward_gradients(gradients)
 
             torch._dynamo.reset()
             compiled = torch.compile(
@@ -1672,7 +1673,7 @@ def test_compile_fullgraph_recomputed_forward_context(
                     routed_gate_forward,
                     routed_up_forward,
                 )
-                return functional.backward(
+                gradients = functional.backward(
                     config,
                     workspace,
                     schedule,
@@ -1687,6 +1688,7 @@ def test_compile_fullgraph_recomputed_forward_context(
                     routed_up_backward,
                     routed_down_backward,
                 )
+                return ungated_backward_gradients(gradients)
 
             torch._dynamo.reset()
             compiled = torch.compile(

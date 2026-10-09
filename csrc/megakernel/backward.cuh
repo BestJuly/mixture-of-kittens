@@ -536,8 +536,16 @@ dispatch_mlp_swiglu_combine_bwd_mxfp8(
     const std::optional<at::Tensor> &w_routed_down_T_sc_storage_table = std::nullopt,
     const std::optional<at::Tensor> &main_grad_routed_gate_storage_table = std::nullopt,
     const std::optional<at::Tensor> &main_grad_routed_up_storage_table = std::nullopt,
-    const std::optional<at::Tensor> &main_grad_routed_down_storage_table = std::nullopt
+    const std::optional<at::Tensor> &main_grad_routed_down_storage_table = std::nullopt,
+    const std::optional<at::Tensor> &shared_grad_output = std::nullopt
 ) {
+    const at::Tensor &d_y_shared = shared_grad_output.has_value() ? *shared_grad_output : d_y_buffer;
+    if (shared_grad_output.has_value()) {
+        TORCH_CHECK(d_y_shared.is_cuda() && d_y_shared.scalar_type() == at::kBFloat16 &&
+                    d_y_shared.is_contiguous() && d_y_shared.device() == d_y_buffer.device() &&
+                    d_y_shared.sizes() == d_y_buffer.sizes(),
+                    "MoK: shared_grad_output must be contiguous CUDA BF16 with d_y_buffer's shape/device");
+    }
     const int num_local_tokens = x.size(0);
     const int schedule_capacity = schedule_peer_rank.size(0);
     const int hidden_dim = x.size(1);
@@ -761,7 +769,7 @@ dispatch_mlp_swiglu_combine_bwd_mxfp8(
         .hidden_sc_routed = kittens::py::tensor_to_gl<sc_gl>(hidden_sc_routed),
         .hidden_fp8_t_routed = kittens::py::tensor_to_gl<mlp_fp8_gl>(hidden_fp8_t_routed),
         .hidden_sc_t_routed = kittens::py::tensor_to_gl<sc_gl>(hidden_sc_t_routed),
-        .d_y_shared = kittens::py::tensor_to_gl<mlp_bf16_gl>(d_y_buffer),
+        .d_y_shared = kittens::py::tensor_to_gl<mlp_bf16_gl>(d_y_shared),
         .d_y_fp8_routed = kittens::py::tensor_to_gl<mlp_fp8_gl>(d_y_fp8_routed),
         .d_y_sc_routed = kittens::py::tensor_to_gl<sc_gl>(d_y_sc_routed),
         .d_y_fp8_t_routed = kittens::py::tensor_to_gl<mlp_fp8_gl>(d_y_fp8_t_routed),
@@ -946,9 +954,17 @@ dispatch_mlp_swiglu_combine_bwd_bf16(
     const std::optional<at::Tensor> &w_routed_down_storage_table = std::nullopt,
     const std::optional<at::Tensor> &main_grad_routed_gate_storage_table = std::nullopt,
     const std::optional<at::Tensor> &main_grad_routed_up_storage_table = std::nullopt,
-    const std::optional<at::Tensor> &main_grad_routed_down_storage_table = std::nullopt
+    const std::optional<at::Tensor> &main_grad_routed_down_storage_table = std::nullopt,
+    const std::optional<at::Tensor> &shared_grad_output = std::nullopt
 ) {
     static_assert(!USE_MXFP8);
+    const at::Tensor &d_y_shared = shared_grad_output.has_value() ? *shared_grad_output : d_y_buffer;
+    if (shared_grad_output.has_value()) {
+        TORCH_CHECK(d_y_shared.is_cuda() && d_y_shared.scalar_type() == at::kBFloat16 &&
+                    d_y_shared.is_contiguous() && d_y_shared.device() == d_y_buffer.device() &&
+                    d_y_shared.sizes() == d_y_buffer.sizes(),
+                    "MoK: shared_grad_output must be contiguous CUDA BF16 with d_y_buffer's shape/device");
+    }
     const int num_local_tokens = x.size(0);
     const int schedule_capacity = schedule_peer_rank.size(0);
     const int hidden_dim = x.size(1);
@@ -1117,7 +1133,7 @@ dispatch_mlp_swiglu_combine_bwd_bf16(
         .hidden_sc_routed = {},
         .hidden_fp8_t_routed = kittens::py::tensor_to_gl<routed_transposed_gl>(hidden_routed),
         .hidden_sc_t_routed = {},
-        .d_y_shared = kittens::py::tensor_to_gl<mlp_bf16_gl>(d_y_buffer),
+        .d_y_shared = kittens::py::tensor_to_gl<mlp_bf16_gl>(d_y_shared),
         .d_y_fp8_routed = kittens::py::tensor_to_gl<routed_activation_gl>(d_y_routed),
         .d_y_sc_routed = {},
         .d_y_fp8_t_routed = kittens::py::tensor_to_gl<routed_transposed_gl>(d_y_routed),
