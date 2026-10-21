@@ -21,6 +21,7 @@ See our [blog post](https://cursor.com/blog/mixture-of-kittens) for the methodol
 - NVIDIA Blackwell SM100 or SM103 GPUs (e.g., GB200 NVL72 or GB300 NVL72)
 - Python 3.12 or later
 - PyTorch 2.10 or later
+- Triton (`mok.functional` imports it for the shared output gate backward)
 - CUDA toolkit 13.0 or later
 
 ### PyTorch and CUDA
@@ -141,9 +142,14 @@ To run MoK in MXFP8 mode, pass the activations as-is in BF16 while prequantizing
 
 MoK supports an optional, bias-free BF16 output gate `W_g[1, H]`:
 `Y = routed_output + sigmoid(linear(X, W_g)) * shared_output`. It is distinct
-from the shared SwiGLU gate projection. Gate projection, sigmoid and gate
-backward use PyTorch operations; the shared-output multiplication is fused
-into the MOK forward epilogue.
+from the shared SwiGLU gate projection. Gate projection and sigmoid use
+PyTorch operations, and the shared-output multiplication is fused into the
+MOK forward epilogue. The gate backward runs two fused Triton kernels
+(`mok/_gate_fused.py`). They keep every BF16 rounding step of the PyTorch
+operations they replace; only the FP32 summation order of the gate gradient
+differs. Because these kernels are launched directly, `torch.compile` is the
+only supported tracer of a gated backward: `FakeTensorMode` or `make_fx` on
+their own do not intercept the launches.
 
 Example with BF16 routed and shared weights:
 
@@ -179,6 +185,29 @@ until backward. Shared backward consumes the BF16 gated gradient; routed
 experts retain their original upstream gradient and quantization path.
 Gated `recompute_forward_context` is unsupported; internal routed replay is
 unchanged. Ungated BF16/MXFP8 retain their original numerical paths.
+
+### Router-weight gradients of unrouted slots
+
+`backward` zeroes `d_router_weights` wherever `top_experts` is `-1`. A caller
+that reads `d_router_weights` only at routed slots can skip this masking with
+`backward(..., zero_unrouted_router_grads=False)`. The unrouted entries are
+then unspecified: zero, or a gradient that an earlier call wrote there.
+
+### Eager launches and cached validation
+
+For plain tensors in eager mode, the functional layer launches its kernels
+directly instead of through the `mok.ops` custom ops. Under `torch.compile`,
+under a dispatch mode and for tensor subclasses, it calls the custom ops. The
+caller's activations and routes are checked on every call. Weights, main
+grads and descriptor tables are checked when they are first used, and the
+functional layer then remembers them by tensor identity. Updating their
+values in place, as an optimizer step does, needs nothing else. If you change
+such a tensor while keeping the same Python object, for example by assigning
+a tensor of another shape or dtype to its `.data`, call
+`functional.clear_workspace_cache()` before the next call. In the same way,
+`get_workspace` validates a repeated set of arguments once and
+`build_schedule` validates its config once per device and shape;
+`clear_workspace_cache()` clears these caches as well.
 
 ### Example (MXFP8 forward and backward using the functional layer)
 

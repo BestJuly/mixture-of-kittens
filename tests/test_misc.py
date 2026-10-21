@@ -1250,6 +1250,8 @@ def test_custom_op_mutation_schemas() -> None:
         },
         "fwd_epilogue": set(),
         "bwd_epilogue": set(),
+        "copy_routed_inputs": {"x_buffer", "router_weight_buffer"},
+        "copy_routed_grad_inputs": {"d_y_buffer", "x_buffer", "router_weight_buffer"},
     }
     actual = {}
     for name in expected:
@@ -1506,10 +1508,12 @@ def test_compile_fullgraph(
             "mok.all_gather_top_experts.default",
             "mok.barrier_all.default",
             "mok.schedule.default",
+            "mok.copy_routed_inputs.default",
             "mok.barrier_all.default",
             f"mok.dispatch_mlp_swiglu_combine_fwd_{precision}.default",
             "mok.barrier_all.default",
             "mok.fwd_epilogue.default",
+            "mok.copy_routed_grad_inputs.default",
             "mok.barrier_all.default",
             f"mok.dispatch_mlp_swiglu_combine_bwd_{precision}.default",
             "mok.barrier_all.default",
@@ -1725,6 +1729,7 @@ def test_compile_fullgraph_recomputed_forward_context(
             "mok.barrier_all.default",
             f"mok.recompute_forward_context_{precision}.default",
             "mok.barrier_all.default",
+            "mok.copy_routed_grad_inputs.default",
             "mok.barrier_all.default",
             f"mok.dispatch_mlp_swiglu_combine_bwd_{precision}.default",
             "mok.barrier_all.default",

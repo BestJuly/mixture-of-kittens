@@ -1861,3 +1861,96 @@ def bwd_epilogue(
 
 
     return _C.bwd_epilogue(d_x_shared, d_x_routed_buffer, top_experts)
+
+
+def _validate_routed_row_copy(
+    top_experts: torch.Tensor,
+    pairs: tuple[tuple[str, torch.Tensor, str, torch.Tensor], ...],
+    router_weights: torch.Tensor,
+    router_weight_buffer: torch.Tensor,
+) -> None:
+    if (not top_experts.is_cuda or top_experts.dtype != torch.int32 or not top_experts.is_contiguous()
+            or top_experts.ndim != 2):
+        raise ValueError("top_experts must be contiguous CUDA int32 [num_local_tokens, topk]")
+    num_local_tokens, topk = top_experts.shape
+    hidden_size = pairs[0][1].shape[-1]
+    if hidden_size <= 0 or hidden_size % 8 != 0:
+        raise ValueError("hidden_size must be a positive multiple of 8")
+    for source_name, source, destination_name, destination in pairs:
+        for name, tensor in ((source_name, source), (destination_name, destination)):
+            if (tensor.device != top_experts.device or tensor.dtype != torch.bfloat16
+                    or not tensor.is_contiguous() or tuple(tensor.shape) != (num_local_tokens, hidden_size)
+                    or tensor.data_ptr() % 16 != 0):
+                raise ValueError(f"{name} must be contiguous 16-byte aligned BF16 [num_local_tokens, hidden_size] "
+                                 "on the top_experts device")
+    for name, tensor in (("router_weights", router_weights), ("router_weight_buffer", router_weight_buffer)):
+        if (tensor.device != top_experts.device or tensor.dtype != torch.float32 or not tensor.is_contiguous()
+                or tuple(tensor.shape) != (num_local_tokens, topk)):
+            raise ValueError(f"{name} must be contiguous float32 [num_local_tokens, topk] on the top_experts device")
+
+
+@torch.library.custom_op("mok::copy_routed_inputs", mutates_args=("x_buffer", "router_weight_buffer"))
+def copy_routed_inputs(
+    top_experts: torch.Tensor,
+    x: torch.Tensor,
+    x_buffer: torch.Tensor,
+    router_weights: torch.Tensor,
+    router_weight_buffer: torch.Tensor,
+) -> None:
+    """Stages the forward inputs that peers read from this rank's symmetric buffers.
+
+    Copies the rows of x that have at least one routed slot (top_experts >= 0) into x_buffer and leaves its other
+    rows untouched (peers read x_buffer only at routed rows), and copies all router weights.
+
+    Inputs:
+        top_experts:          int32 [num_local_tokens, topk], with -1 for invalid routes
+        x:                    bfloat16 [num_local_tokens, hidden_size]
+        x_buffer:             bfloat16 [num_local_tokens, hidden_size]
+        router_weights:       float32 [num_local_tokens, topk]
+        router_weight_buffer: float32 [num_local_tokens, topk]
+
+    Outputs:
+        None
+    """
+    _validate_routed_row_copy(top_experts, (("x", x, "x_buffer", x_buffer),), router_weights, router_weight_buffer)
+    _C.copy_routed_rows(top_experts, [x], [x_buffer], router_weights, router_weight_buffer)
+
+
+@torch.library.custom_op(
+    "mok::copy_routed_grad_inputs", mutates_args=("d_y_buffer", "x_buffer", "router_weight_buffer")
+)
+def copy_routed_grad_inputs(
+    top_experts: torch.Tensor,
+    grad_output: torch.Tensor,
+    d_y_buffer: torch.Tensor,
+    x: torch.Tensor,
+    x_buffer: torch.Tensor,
+    router_weights: torch.Tensor,
+    router_weight_buffer: torch.Tensor,
+) -> None:
+    """Stages the backward inputs that peers read from this rank's symmetric buffers.
+
+    Copies the rows of grad_output and x that have at least one routed slot into d_y_buffer and x_buffer (their
+    other rows are left untouched; peers read them only at routed rows), and copies all router weights.
+
+    Inputs:
+        top_experts:          int32 [num_local_tokens, topk], with -1 for invalid routes
+        grad_output:          bfloat16 [num_local_tokens, hidden_size]
+        d_y_buffer:           bfloat16 [num_local_tokens, hidden_size]
+        x:                    bfloat16 [num_local_tokens, hidden_size]
+        x_buffer:             bfloat16 [num_local_tokens, hidden_size]
+        router_weights:       float32 [num_local_tokens, topk]
+        router_weight_buffer: float32 [num_local_tokens, topk]
+
+    Outputs:
+        None
+    """
+    _validate_routed_row_copy(
+        top_experts,
+        (("grad_output", grad_output, "d_y_buffer", d_y_buffer), ("x", x, "x_buffer", x_buffer)),
+        router_weights,
+        router_weight_buffer,
+    )
+    _C.copy_routed_rows(
+        top_experts, [grad_output, x], [d_y_buffer, x_buffer], router_weights, router_weight_buffer
+    )

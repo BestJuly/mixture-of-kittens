@@ -10,6 +10,8 @@ from mok.ops import (
     all_gather_top_experts,
     barrier_all,
     bwd_epilogue,
+    copy_routed_grad_inputs,
+    copy_routed_inputs,
     dispatch_mlp_swiglu_combine_bwd_mxfp8,
     dispatch_mlp_swiglu_combine_bwd_bf16,
     dispatch_mlp_swiglu_combine_fwd_mxfp8,
@@ -2456,6 +2458,62 @@ def test_bwd_epilogue(context: tuple[int, int, torch.device]) -> None:
     ):
         try:
             bwd_epilogue(**(valid_kwargs | overrides))
+        except expected_exception:
+            pass
+        else:
+            raise AssertionError(f"{failure_name} should have failed")
+
+
+def test_copy_routed_inputs(context: tuple[int, int, torch.device]) -> None:
+    rank, _, device = context
+    generator = torch.Generator(device=device).manual_seed(4321 + rank)
+    for num_local_tokens, hidden_dim, topk in ((512, 2048, 8), (768, 2304, 40)):
+        top_experts = torch.randint(
+            0, 64, (num_local_tokens, topk), generator=generator, device=device, dtype=torch.int32)
+        # Route counts 0..topk+1 per row: rows without any route keep their stale buffer contents
+        route_counts = torch.arange(num_local_tokens, device=device) % (topk + 2)
+        top_experts.masked_fill_(
+            torch.arange(topk, device=device).unsqueeze(0) >= route_counts.unsqueeze(1), -1)
+        routed = (top_experts >= 0).any(dim=1)
+        x = torch.randn(num_local_tokens, hidden_dim, generator=generator, device=device, dtype=torch.bfloat16)
+        grad_output = torch.randn_like(x)
+        router_weights = torch.rand(num_local_tokens, topk, generator=generator, device=device)
+        x_buffer = torch.full_like(x, 3.0)
+        d_y_buffer = torch.full_like(x, 5.0)
+        router_weight_buffer = torch.full_like(router_weights, -1.0)
+
+        copy_routed_inputs(top_experts, x, x_buffer, router_weights, router_weight_buffer)
+        assert torch.equal(x_buffer[routed], x[routed])
+        assert bool((x_buffer[~routed] == 3.0).all())
+        assert torch.equal(router_weight_buffer, router_weights)
+
+        x_buffer.fill_(3.0)
+        router_weight_buffer.fill_(-1.0)
+        copy_routed_grad_inputs(top_experts, grad_output, d_y_buffer, x, x_buffer,
+                                router_weights, router_weight_buffer)
+        assert torch.equal(d_y_buffer[routed], grad_output[routed])
+        assert bool((d_y_buffer[~routed] == 5.0).all())
+        assert torch.equal(x_buffer[routed], x[routed])
+        assert bool((x_buffer[~routed] == 3.0).all())
+        assert torch.equal(router_weight_buffer, router_weights)
+
+    valid_kwargs = {
+        "top_experts": top_experts,
+        "x": x,
+        "x_buffer": x_buffer,
+        "router_weights": router_weights,
+        "router_weight_buffer": router_weight_buffer,
+    }
+    for failure_name, overrides, expected_exception in (
+        ("routes dtype", {"top_experts": top_experts.long()}, ValueError),
+        ("routes rank", {"top_experts": top_experts.flatten()}, ValueError),
+        ("buffer shape", {"x_buffer": x_buffer[:-1]}, ValueError),
+        ("buffer dtype", {"x_buffer": x_buffer.float()}, ValueError),
+        ("source shape", {"x": x[:, 8:].contiguous()}, ValueError),
+        ("weights shape", {"router_weights": router_weights[:, :1].contiguous()}, ValueError),
+    ):
+        try:
+            copy_routed_inputs(**(valid_kwargs | overrides))
         except expected_exception:
             pass
         else:

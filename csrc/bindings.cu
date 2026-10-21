@@ -152,6 +152,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           pybind11::arg("shared_output_gate") = pybind11::none());
     m.def("bwd_epilogue", &utils::bwd_epilogue::bwd_epilogue_entrypoint, "",
           pybind11::arg("d_x_shared"), pybind11::arg("d_x_routed_buffer"), pybind11::arg("top_experts"));
+    m.def("copy_routed_rows", &utils::copy_routed_rows::copy_routed_rows_entrypoint, "",
+          pybind11::arg("top_experts"), pybind11::arg("sources"), pybind11::arg("destinations"),
+          pybind11::arg("weights") = pybind11::none(), pybind11::arg("weights_destination") = pybind11::none());
     m.def("recompute_forward_context_mxfp8", &recompute_forward_context_mxfp8_entrypoint, "",
           pybind11::arg("x"), pybind11::arg("x_ptrs"),
           pybind11::arg("w_shared_gate"), pybind11::arg("w_routed_gate"), pybind11::arg("w_routed_gate_sc"),
