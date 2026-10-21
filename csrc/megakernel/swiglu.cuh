@@ -9,6 +9,11 @@ static __device__ __forceinline__ float2 swiglu_bwd_pair(
 ) {
     uint32_t clamp_grad_mask;
     if constexpr (IS_CLAMPED) {
+        // Keep MOK's inclusive clamp subgradient: 1 at gate == limit and
+        // up == +/-limit, and 0 strictly outside the respective bounds.
+        // This is an operator contract, not the installed PyTorch default:
+        // scalar torch.clamp in PyTorch 2.14 uses 0 at equality instead.
+        // tests/utils.py::run_swiglu_reference encodes this contract explicitly.
         clamp_grad_mask = static_cast<uint32_t>(gate.x <= limit)
                           | static_cast<uint32_t>(gate.y <= limit) << 1
                           | static_cast<uint32_t>(up.x >= -limit && up.x <= limit) << 2

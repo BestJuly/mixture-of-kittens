@@ -237,8 +237,15 @@ def run_swiglu_reference(
         return torch.nn.functional.silu(gate) * up
     else:
         dtype = gate.dtype
-        gate_fp32 = gate.float().clamp(max=swiglu_limit)
-        up_fp32 = up.float().clamp(min=-swiglu_limit, max=swiglu_limit)
+        gate_fp32 = gate.float()
+        up_fp32 = up.float()
+        # MOK keeps the clamp derivative at 1 exactly on the boundary:
+        # gate <= limit, and -limit <= up <= limit. Scalar torch.clamp's
+        # boundary derivative varies across PyTorch versions (zero in 2.14).
+        # Strict out-of-range conditions preserve MOK's contract explicitly.
+        gate_fp32 = torch.where(gate_fp32 > swiglu_limit, swiglu_limit, gate_fp32)
+        up_fp32 = torch.where(up_fp32 < -swiglu_limit, -swiglu_limit, up_fp32)
+        up_fp32 = torch.where(up_fp32 > swiglu_limit, swiglu_limit, up_fp32)
         return (torch.nn.functional.silu(gate_fp32) * up_fp32).to(dtype)
 
 

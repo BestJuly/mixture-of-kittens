@@ -10,7 +10,7 @@ from .utils import BF16_TOLERANCE, check_correctness, generate_inputs, run_refer
 def test_canonical_fc12_wgrad_accum(
     context: tuple[int, int, torch.device],
 ) -> None:
-    """Exercise the public FC1/FC2 API through fused BF16 main-grad accumulation."""
+    """Keep FC1/FC2 optimizer owners while using the six-weight MOK ABI."""
     rank, world_size, device = context
     num_local_experts = int(os.getenv("MOK_TEST_NUM_LOCAL_EXPERTS", "2"))
     hidden_dim = int(os.getenv("MOK_TEST_HIDDEN_DIM", "256"))
@@ -57,6 +57,9 @@ def test_canonical_fc12_wgrad_accum(
     ) = inputs
     shared_fc1 = torch.cat((shared_gate, shared_up), dim=0)
     routed_fc1 = torch.cat((routed_gate, routed_up), dim=1)
+    shared_gate_view = shared_fc1[:intermediate_dim]
+    shared_up_view = shared_fc1[intermediate_dim:]
+    assert shared_gate_view.is_contiguous() and shared_up_view.is_contiguous()
     schedule = functional.build_schedule(
         workspace,
         config,
@@ -67,6 +70,17 @@ def test_canonical_fc12_wgrad_accum(
         torch.full_like(weight, 0.25, dtype=torch.bfloat16)
         for weight in (shared_fc1, routed_fc1, shared_fc2, routed_fc2)
     )
+    # The optimizer receives four full owners, without counting FC1 twice.
+    # MOK's gate/up descriptors select disjoint halves of the same routed FC1.
+    abi_main_grads = (
+        main_grads[0][:intermediate_dim],
+        main_grads[1],
+        main_grads[0][intermediate_dim:],
+        main_grads[1],
+        main_grads[2],
+        main_grads[3],
+    )
+    assert all(gradient.is_contiguous() for gradient in abi_main_grads)
 
     output, forward_context = functional.forward(
         config,
@@ -74,12 +88,14 @@ def test_canonical_fc12_wgrad_accum(
         schedule,
         x,
         router_weights,
-        shared_fc1,
+        shared_gate_view,
+        shared_up_view,
         shared_fc2,
+        routed_fc1,
         routed_fc1,
         routed_fc2,
     )
-    d_x, d_router_weights, *_ = functional.backward(
+    backward_outputs = functional.backward(
         config,
         workspace,
         schedule,
@@ -87,12 +103,23 @@ def test_canonical_fc12_wgrad_accum(
         grad_output,
         x,
         router_weights,
-        shared_fc1,
+        shared_gate_view,
+        shared_up_view,
         shared_fc2,
         routed_fc1,
+        routed_fc1,
         routed_fc2,
-        main_grads=main_grads,
+        main_grads=abi_main_grads,
     )
+    assert len(backward_outputs) == 9 and backward_outputs[-1] is None
+    d_x, d_router_weights = backward_outputs[:2]
+    for actual, expected_alias in zip(
+        backward_outputs[2:8],
+        (abi_main_grads[1], abi_main_grads[3], abi_main_grads[5],
+         abi_main_grads[0], abi_main_grads[2], abi_main_grads[4]),
+        strict=True,
+    ):
+        assert actual is expected_alias
 
     # Match the optimizer operation that exposed the end-to-end regression.
     noop = torch.zeros(1, dtype=torch.int32, device=device)
