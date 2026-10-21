@@ -1,8 +1,8 @@
 template <bool IS_CLAMPED>
 static __device__ __forceinline__ void dispatch_mlp_swiglu_combine_bwd_kernel(const globals_bwd &g) {
     const int num_local_experts = g.w_routed_gate.depth();
-    const int intermediate_dim_col_blocks = g.hidden_shared.cols() / config::MLP_Nb;
-    const int hidden_dim_col_blocks = g.d_y_shared.cols() / config::MLP_Nb;
+    const int intermediate_dim_col_blocks = config::mlp_col_blocks(g.hidden_shared.cols());
+    const int hidden_dim_col_blocks = config::mlp_col_blocks(g.d_y_shared.cols());
 
     int cluster_idx = clusterIdx().x;
     const int cta_rank = cluster_ctarank();
@@ -555,7 +555,7 @@ dispatch_mlp_swiglu_combine_bwd_mxfp8(
     const int num_macrobatches = (schedule_capacity + macrobatch_size - 1) / macrobatch_size;
     const int shared_row_blocks = num_local_tokens / config::MLP_Mb;
     const int routed_row_blocks = schedule_capacity / config::MLP_Mb;
-    const int intermediate_dim_col_blocks = intermediate_dim / config::MLP_Nb;
+    const int intermediate_dim_col_blocks = config::mlp_col_blocks(intermediate_dim);
     const bool combined_fc1_payload = w_routed_gate.is_same(w_routed_up);
     const bool combined_fc1_transposed_payload =
         w_routed_gate_T.is_same(w_routed_up_T);
@@ -974,7 +974,7 @@ dispatch_mlp_swiglu_combine_bwd_bf16(
     const int num_macrobatches = (schedule_capacity + macrobatch_size - 1) / macrobatch_size;
     const int shared_row_blocks = num_local_tokens / config::MLP_Mb;
     const int routed_row_blocks = schedule_capacity / config::MLP_Mb;
-    const int intermediate_dim_col_blocks = intermediate_dim / config::MLP_Nb;
+    const int intermediate_dim_col_blocks = config::mlp_col_blocks(intermediate_dim);
     const bool combined_fc1_payload = w_routed_gate.is_same(w_routed_up);
     const bool split_weight_storage = w_routed_gate_storage_table.has_value();
     TORCH_CHECK(
