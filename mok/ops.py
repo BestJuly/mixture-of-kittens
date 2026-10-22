@@ -408,8 +408,8 @@ def dispatch_mlp_swiglu_combine_fwd_mxfp8(
     if w_shared_gate.ndim != 2:
         raise ValueError("w_shared_gate must have shape (intermediate_size, hidden_size)")
     intermediate_size = w_shared_gate.shape[0]
-    if intermediate_size <= 0 or intermediate_size % 256 != 0:
-        raise ValueError("intermediate_size must be positive and divisible by 256")
+    if intermediate_size < 256 or intermediate_size % 128 != 0:
+        raise ValueError("intermediate_size must be at least 256 and divisible by 128")
     split_storage = w_routed_gate_storage_table is not None
     if (
         split_storage != (w_routed_up_storage_table is not None)
@@ -636,8 +636,8 @@ def dispatch_mlp_swiglu_combine_fwd_bf16(
     if w_shared_gate.ndim != 2 or w_shared_gate.shape[1] != hidden_size:
         raise ValueError("w_shared_gate must have shape (intermediate_size, hidden_size)")
     intermediate_size = w_shared_gate.shape[0]
-    if intermediate_size <= 0 or intermediate_size % 256 != 0:
-        raise ValueError("intermediate_size must be positive and divisible by 256")
+    if intermediate_size < 256 or intermediate_size % 128 != 0:
+        raise ValueError("intermediate_size must be at least 256 and divisible by 128")
     split_storage = w_routed_gate_storage_table is not None
     if (
         split_storage != (w_routed_up_storage_table is not None)
@@ -846,8 +846,8 @@ def recompute_forward_context_mxfp8(
     if w_shared_gate.ndim != 2:
         raise ValueError("w_shared_gate must have shape (intermediate_size, hidden_size)")
     intermediate_size = w_shared_gate.shape[0]
-    if intermediate_size <= 0 or intermediate_size % 256 != 0:
-        raise ValueError("intermediate_size must be positive and divisible by 256")
+    if intermediate_size < 256 or intermediate_size % 128 != 0:
+        raise ValueError("intermediate_size must be at least 256 and divisible by 128")
     if w_routed_gate.ndim != 3 or w_routed_gate.shape[0] <= 0:
         raise ValueError("w_routed_gate must have shape "
                          "(num_local_experts, intermediate_size, hidden_size)")
@@ -964,8 +964,8 @@ def recompute_forward_context_bf16(
     if w_shared_gate.ndim != 2 or w_shared_gate.shape[1] != hidden_size:
         raise ValueError("w_shared_gate must have shape (intermediate_size, hidden_size)")
     intermediate_size = w_shared_gate.shape[0]
-    if intermediate_size <= 0 or intermediate_size % 256 != 0:
-        raise ValueError("intermediate_size must be positive and divisible by 256")
+    if intermediate_size < 256 or intermediate_size % 128 != 0:
+        raise ValueError("intermediate_size must be at least 256 and divisible by 128")
     if w_routed_gate.ndim != 3 or w_routed_gate.shape[0] <= 0:
         raise ValueError("w_routed_gate must have shape (num_local_experts, intermediate_size, hidden_size)")
     num_local_experts = w_routed_gate.shape[0]
@@ -1215,8 +1215,8 @@ def dispatch_mlp_swiglu_combine_bwd_mxfp8(
     if w_shared_gate.ndim != 2 or w_shared_gate.shape[1] != hidden_size:
         raise ValueError("w_shared_gate must have shape (intermediate_size, hidden_size)")
     intermediate_size = w_shared_gate.shape[0]
-    if intermediate_size <= 0 or intermediate_size % 256 != 0:
-        raise ValueError("intermediate_size must be positive and divisible by 256")
+    if intermediate_size < 256 or intermediate_size % 128 != 0:
+        raise ValueError("intermediate_size must be at least 256 and divisible by 128")
     if w_routed_gate.ndim != 3 or w_routed_gate.shape[0] <= 0:
         raise ValueError("w_routed_gate must have shape "
                          "(num_local_experts, intermediate_size, hidden_size)")
@@ -1592,8 +1592,8 @@ def dispatch_mlp_swiglu_combine_bwd_bf16(
     if w_shared_gate.ndim != 2 or w_shared_gate.shape[1] != hidden_size:
         raise ValueError("w_shared_gate must have shape (intermediate_size, hidden_size)")
     intermediate_size = w_shared_gate.shape[0]
-    if intermediate_size <= 0 or intermediate_size % 256 != 0:
-        raise ValueError("intermediate_size must be positive and divisible by 256")
+    if intermediate_size < 256 or intermediate_size % 128 != 0:
+        raise ValueError("intermediate_size must be at least 256 and divisible by 128")
     if w_routed_gate.ndim != 3 or w_routed_gate.shape[0] <= 0:
         raise ValueError("w_routed_gate must have shape (num_local_experts, intermediate_size, hidden_size)")
     num_local_experts = w_routed_gate.shape[0]
