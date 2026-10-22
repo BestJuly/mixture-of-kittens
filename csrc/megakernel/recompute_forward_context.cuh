@@ -252,8 +252,8 @@ recompute_forward_context_mxfp8(
     const int num_routed_minibatches = (num_routed_tokens + minibatch_size - 1) / minibatch_size;
     const int shared_row_blocks = num_local_tokens / config::MLP_Mb;
     const int routed_row_blocks = num_routed_tokens / config::MLP_Mb;
-    const int shared_gate_up_tasks = shared_row_blocks * (w_shared_gate.size(0) / config::MLP_Nb);
-    const int routed_gate_up_tasks = routed_row_blocks * (w_routed_gate.size(1) / config::MLP_Nb);
+    const int shared_gate_up_tasks = shared_row_blocks * (config::mlp_col_blocks(w_shared_gate.size(0)));
+    const int routed_gate_up_tasks = routed_row_blocks * (config::mlp_col_blocks(w_routed_gate.size(1)));
 
     activation_bf16_pgl x_routed_send_buffer_data;
     for (int i = 0; i < NUM_DEVICES; ++i)
