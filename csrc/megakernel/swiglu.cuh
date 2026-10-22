@@ -71,7 +71,7 @@ static __device__ __forceinline__ void swiglu_fwd_kernel(
     auto (&up_smem)[config::SWIGLU_FWD_PIPE_DEPTH]   = *reinterpret_cast<input_bf16_tile (*)[config::SWIGLU_FWD_PIPE_DEPTH]>(reinterpret_cast<uint64_t>(&gate_smem) + sizeof(gate_smem));
     auto &hidden_smem                                = *reinterpret_cast<output_bf16_tile *>(reinterpret_cast<uint64_t>(&up_smem) + sizeof(up_smem));
 
-    const int intermediate_dim_col_blocks = hidden_gmem.cols() / config::MLP_Nb;
+    const int intermediate_dim_col_blocks = config::mlp_col_blocks(hidden_gmem.cols());
     const int global_minibatch_idx = macrobatch_idx * (macrobatch_size / minibatch_size) + minibatch_idx;
     const int macrobatch_row_block_offset = macrobatch_idx * (macrobatch_size / config::SWIGLU_Mb);
 
@@ -266,7 +266,7 @@ static __device__ __forceinline__ void swiglu_bwd_kernel(
         : reinterpret_cast<uint64_t>(&up_smem) + sizeof(up_smem);
     auto &router_smem    = *reinterpret_cast<float (*)[config::SWIGLU_BWD_PIPE_DEPTH][config::SWIGLU_Mb]>(router_smem_addr);
 
-    const int intermediate_dim_col_blocks = gate_gmem.cols() / config::MLP_Nb;
+    const int intermediate_dim_col_blocks = config::mlp_col_blocks(gate_gmem.cols());
     const int global_minibatch_idx = macrobatch_idx * (macrobatch_size / minibatch_size) + minibatch_idx;
     const int macrobatch_row_block_offset = macrobatch_idx * (macrobatch_size / config::SWIGLU_Mb);
 
