@@ -488,6 +488,9 @@ static __device__ __forceinline__ void expert_grouped_gemm_kernel(
                             {d_gmem.physical_expert(tile_coord.z), row_tile, col_tile});
                     }
                 }
+                // Empty tail CTAs must let every consumer observe completion before acknowledging it.
+                if (!cta_has_valid_rows)
+                    warpgroup::sync(1);
                 warpgroup::tma::cluster::arrive(gemm_outputs_finished, 0);
                 warpgroup::tma::store_async_read_wait();
             } else {
