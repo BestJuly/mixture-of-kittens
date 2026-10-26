@@ -126,6 +126,9 @@ static __device__ __forceinline__ void expert_grouped_gemm_kernel(
     const int valid_rows = min(config::MLP_Mb, output_rows - tile_coord.x * config::MLP_Mb);
     const bool cta_has_valid_rows = cta_rank * (config::MLP_Mb / config::CLUSTER_SIZE) < valid_rows;
     const int valid_cols = min(config::MLP_Nb, output_cols - tile_coord.y * config::MLP_Nb);
+    // A tail tile may have only one valid 128-column half. Both CTAs still
+    // load B scales, so reuse the last valid scale for the absent half;
+    // its output columns are skipped by the epilogue below.
     const int output_half_blocks = (output_cols + config::MLP_Nb_HALF - 1) / config::MLP_Nb_HALF;
 
     const int first_gemm_iters = IS_WGRAD ? 0 : a_gmem.cols() / MLP_Kb;
