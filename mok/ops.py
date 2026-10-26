@@ -380,8 +380,8 @@ def dispatch_mlp_swiglu_combine_fwd_mxfp8(
     num_local_tokens, hidden_size = x.shape
     if num_local_tokens < 512 or num_local_tokens % 256 != 0:
         raise ValueError("num_local_tokens must be at least 512 and divisible by 256")
-    if hidden_size <= 0 or hidden_size % 256 != 0:
-        raise ValueError("hidden_size must be positive and divisible by 256")
+    if hidden_size < 256 or hidden_size % 128 != 0:
+        raise ValueError("hidden_size must be at least 256 and divisible by 128")
     if type(topk) is not int or not 0 < topk <= 255:
         raise ValueError("topk must be an integer in [1, 255]")
     if swiglu_limit is not None and (type(swiglu_limit) not in (int, float) or swiglu_limit < 0):
@@ -408,8 +408,8 @@ def dispatch_mlp_swiglu_combine_fwd_mxfp8(
     if w_shared_gate.ndim != 2:
         raise ValueError("w_shared_gate must have shape (intermediate_size, hidden_size)")
     intermediate_size = w_shared_gate.shape[0]
-    if intermediate_size <= 0 or intermediate_size % 256 != 0:
-        raise ValueError("intermediate_size must be positive and divisible by 256")
+    if intermediate_size < 256 or intermediate_size % 128 != 0:
+        raise ValueError("intermediate_size must be at least 256 and divisible by 128")
     split_storage = w_routed_gate_storage_table is not None
     if (
         split_storage != (w_routed_up_storage_table is not None)
@@ -631,13 +631,13 @@ def dispatch_mlp_swiglu_combine_fwd_bf16(
     num_local_tokens, hidden_size = x.shape
     if num_local_tokens < 512 or num_local_tokens % 256 != 0:
         raise ValueError("num_local_tokens must be at least 512 and divisible by 256")
-    if hidden_size <= 0 or hidden_size % 256 != 0:
-        raise ValueError("hidden_size must be positive and divisible by 256")
+    if hidden_size < 256 or hidden_size % 128 != 0:
+        raise ValueError("hidden_size must be at least 256 and divisible by 128")
     if w_shared_gate.ndim != 2 or w_shared_gate.shape[1] != hidden_size:
         raise ValueError("w_shared_gate must have shape (intermediate_size, hidden_size)")
     intermediate_size = w_shared_gate.shape[0]
-    if intermediate_size <= 0 or intermediate_size % 256 != 0:
-        raise ValueError("intermediate_size must be positive and divisible by 256")
+    if intermediate_size < 256 or intermediate_size % 128 != 0:
+        raise ValueError("intermediate_size must be at least 256 and divisible by 128")
     split_storage = w_routed_gate_storage_table is not None
     if (
         split_storage != (w_routed_up_storage_table is not None)
@@ -826,8 +826,8 @@ def recompute_forward_context_mxfp8(
     num_local_tokens, hidden_size = x.shape
     if num_local_tokens < 512 or num_local_tokens % 256 != 0:
         raise ValueError("num_local_tokens must be at least 512 and divisible by 256")
-    if hidden_size <= 0 or hidden_size % 256 != 0:
-        raise ValueError("hidden_size must be positive and divisible by 256")
+    if hidden_size < 256 or hidden_size % 128 != 0:
+        raise ValueError("hidden_size must be at least 256 and divisible by 128")
     if type(topk) is not int or not 0 < topk <= 255:
         raise ValueError("topk must be an integer in [1, 255]")
     if swiglu_limit is not None and (type(swiglu_limit) not in (int, float) or swiglu_limit < 0):
@@ -846,8 +846,8 @@ def recompute_forward_context_mxfp8(
     if w_shared_gate.ndim != 2:
         raise ValueError("w_shared_gate must have shape (intermediate_size, hidden_size)")
     intermediate_size = w_shared_gate.shape[0]
-    if intermediate_size <= 0 or intermediate_size % 256 != 0:
-        raise ValueError("intermediate_size must be positive and divisible by 256")
+    if intermediate_size < 256 or intermediate_size % 128 != 0:
+        raise ValueError("intermediate_size must be at least 256 and divisible by 128")
     if w_routed_gate.ndim != 3 or w_routed_gate.shape[0] <= 0:
         raise ValueError("w_routed_gate must have shape "
                          "(num_local_experts, intermediate_size, hidden_size)")
@@ -959,13 +959,13 @@ def recompute_forward_context_bf16(
     num_local_tokens, hidden_size = x.shape
     if num_local_tokens < 512 or num_local_tokens % 256 != 0:
         raise ValueError("num_local_tokens must be at least 512 and divisible by 256")
-    if hidden_size <= 0 or hidden_size % 256 != 0:
-        raise ValueError("hidden_size must be positive and divisible by 256")
+    if hidden_size < 256 or hidden_size % 128 != 0:
+        raise ValueError("hidden_size must be at least 256 and divisible by 128")
     if w_shared_gate.ndim != 2 or w_shared_gate.shape[1] != hidden_size:
         raise ValueError("w_shared_gate must have shape (intermediate_size, hidden_size)")
     intermediate_size = w_shared_gate.shape[0]
-    if intermediate_size <= 0 or intermediate_size % 256 != 0:
-        raise ValueError("intermediate_size must be positive and divisible by 256")
+    if intermediate_size < 256 or intermediate_size % 128 != 0:
+        raise ValueError("intermediate_size must be at least 256 and divisible by 128")
     if w_routed_gate.ndim != 3 or w_routed_gate.shape[0] <= 0:
         raise ValueError("w_routed_gate must have shape (num_local_experts, intermediate_size, hidden_size)")
     num_local_experts = w_routed_gate.shape[0]
@@ -1173,8 +1173,8 @@ def dispatch_mlp_swiglu_combine_bwd_mxfp8(
     num_local_tokens, hidden_size = x.shape
     if num_local_tokens < 512 or num_local_tokens % 256 != 0:
         raise ValueError("num_local_tokens must be at least 512 and divisible by 256")
-    if hidden_size <= 0 or hidden_size % 256 != 0:
-        raise ValueError("hidden_size must be positive and divisible by 256")
+    if hidden_size < 256 or hidden_size % 128 != 0:
+        raise ValueError("hidden_size must be at least 256 and divisible by 128")
     if type(topk) is not int or not 0 < topk <= 255:
         raise ValueError("topk must be an integer in [1, 255]")
     if swiglu_limit is not None and (type(swiglu_limit) not in (int, float) or swiglu_limit < 0):
@@ -1215,8 +1215,8 @@ def dispatch_mlp_swiglu_combine_bwd_mxfp8(
     if w_shared_gate.ndim != 2 or w_shared_gate.shape[1] != hidden_size:
         raise ValueError("w_shared_gate must have shape (intermediate_size, hidden_size)")
     intermediate_size = w_shared_gate.shape[0]
-    if intermediate_size <= 0 or intermediate_size % 256 != 0:
-        raise ValueError("intermediate_size must be positive and divisible by 256")
+    if intermediate_size < 256 or intermediate_size % 128 != 0:
+        raise ValueError("intermediate_size must be at least 256 and divisible by 128")
     if w_routed_gate.ndim != 3 or w_routed_gate.shape[0] <= 0:
         raise ValueError("w_routed_gate must have shape "
                          "(num_local_experts, intermediate_size, hidden_size)")
@@ -1587,13 +1587,13 @@ def dispatch_mlp_swiglu_combine_bwd_bf16(
     num_local_tokens, hidden_size = x.shape
     if num_local_tokens < 512 or num_local_tokens % 256 != 0:
         raise ValueError("num_local_tokens must be at least 512 and divisible by 256")
-    if hidden_size <= 0 or hidden_size % 256 != 0:
-        raise ValueError("hidden_size must be positive and divisible by 256")
+    if hidden_size < 256 or hidden_size % 128 != 0:
+        raise ValueError("hidden_size must be at least 256 and divisible by 128")
     if w_shared_gate.ndim != 2 or w_shared_gate.shape[1] != hidden_size:
         raise ValueError("w_shared_gate must have shape (intermediate_size, hidden_size)")
     intermediate_size = w_shared_gate.shape[0]
-    if intermediate_size <= 0 or intermediate_size % 256 != 0:
-        raise ValueError("intermediate_size must be positive and divisible by 256")
+    if intermediate_size < 256 or intermediate_size % 128 != 0:
+        raise ValueError("intermediate_size must be at least 256 and divisible by 128")
     if w_routed_gate.ndim != 3 or w_routed_gate.shape[0] <= 0:
         raise ValueError("w_routed_gate must have shape (num_local_experts, intermediate_size, hidden_size)")
     num_local_experts = w_routed_gate.shape[0]
@@ -1783,8 +1783,8 @@ def fwd_epilogue(
     num_local_tokens, hidden_size = y_shared.shape
     if num_local_tokens < 512 or num_local_tokens % 256 != 0:
         raise ValueError("num_local_tokens must be at least 512 and divisible by 256")
-    if hidden_size <= 0 or hidden_size % 256 != 0:
-        raise ValueError("hidden_size must be positive and divisible by 256")
+    if hidden_size < 256 or hidden_size % 128 != 0:
+        raise ValueError("hidden_size must be at least 256 and divisible by 128")
     if (topk_weights.device != y_shared.device
             or combine_buffer.device != y_shared.device
             or top_experts.device != y_shared.device):
@@ -1838,8 +1838,8 @@ def bwd_epilogue(
     num_local_tokens, hidden_size = d_x_shared.shape
     if num_local_tokens < 512 or num_local_tokens % 256 != 0:
         raise ValueError("num_local_tokens must be at least 512 and divisible by 256")
-    if hidden_size <= 0 or hidden_size % 256 != 0:
-        raise ValueError("hidden_size must be positive and divisible by 256")
+    if hidden_size < 256 or hidden_size % 128 != 0:
+        raise ValueError("hidden_size must be at least 256 and divisible by 128")
     if (d_x_routed_buffer.device != d_x_shared.device
             or top_experts.device != d_x_shared.device):
         raise ValueError("all tensors must be on the same CUDA device")

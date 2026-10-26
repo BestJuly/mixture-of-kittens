@@ -223,8 +223,8 @@ def validate_workspace_args(
         raise ValueError("num_local_tokens must be divisible by 256")
     if type(hidden_size) is not int or hidden_size <= 0:
         raise ValueError("hidden_size must be a positive integer")
-    if hidden_size % 256 != 0:
-        raise ValueError("hidden_size must be divisible by 256")
+    if hidden_size < 256 or hidden_size % 128 != 0:
+        raise ValueError("hidden_size must be at least 256 and divisible by 128")
     if type(topk) is not int or not 0 < topk <= 255:
         raise ValueError("topk must be an integer in [1, 255]")
     fwd_epilogue_smem_bytes = 2 * ((topk + 1) * 2048 + 2 * topk * 4) + 1024
