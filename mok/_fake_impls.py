@@ -411,3 +411,11 @@ def _bwd_epilogue_fake(
     top_experts: torch.Tensor,
 ) -> torch.Tensor:  # d_x
     return d_x_shared.new_empty(d_x_shared.shape)
+
+
+@torch.library.register_fake("mok::stage_into_buffers")
+def _stage_into_buffers_fake(
+    sources: list[torch.Tensor],
+    buffers: list[torch.Tensor],
+) -> None:
+    return None
