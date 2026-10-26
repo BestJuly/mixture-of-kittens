@@ -1781,9 +1781,15 @@ def test_compiled_barrier_updates_state(
 
 def test_supported_shape_alignment(
     context: tuple[int, int, torch.device],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, _, device = context
     pointers = [1, 2, 3, 4]
+
+    def reject_native_launch(*args, **kwargs):
+        raise AssertionError("Shape validation must not launch kernels with dummy pointers")
+
+    monkeypatch.setattr(ops._C, "dispatch_mlp_swiglu_combine_fwd_bf16", reject_native_launch)
 
     def run_shape(
         hidden_size: int,
@@ -1828,6 +1834,9 @@ def test_supported_shape_alignment(
         (2560, 2560),
         (1024, 1024),
         (1280, 1280),
+        (640, 640),
+        (1664, 1664),
+        (1920, 1920),
     ):
         with pytest.raises(ValueError, match="num_comm_sms"):
             run_shape(
@@ -1836,9 +1845,8 @@ def test_supported_shape_alignment(
                 num_comm_sms=1,
             )
     for hidden_size, intermediate_size in (
-        (640, 640),
-        (1664, 1664),
-        (1920, 1920),
+        (320, 256),
+        (256, 320),
         (128, 256),
         (0, 256),
         (256, 0),
